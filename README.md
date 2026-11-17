@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Studia
 
 Sistema de gestão escolar para organizar horários de aula e reservas de laboratório, com áreas para desenvolvedor, direção pedagógica e professores.
@@ -51,3 +52,6 @@ Para horários personalizados, aplique `migrations/009_school_periods.sql` e `mi
 | `npm run clean` | Remove `dist/` |
 
 Mais detalhes de arquitetura, rotas e regras de negócio em [DOCS.md](./DOCS.md).
+=======
+# Studia-.
+>>>>>>> meu-repo/calculadora
