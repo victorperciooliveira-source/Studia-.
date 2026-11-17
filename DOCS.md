@@ -41,7 +41,8 @@ Sidebar clara, 5 abas:
 - **Relatórios** (`RelatoriosTab`): geração de grade em PDF (por professor ou por turma) e gráfico de frequência.
 
 ### Professor (`TeacherView`)
-Sidebar com 3 abas:
+Sidebar com 4 abas:
+- **Dashboard**: visão somente leitura da agenda e das reservas do próprio professor, com resumo da semana atual e dados da escola.
 - **Meus Horários**: grade semanal só com as aulas do próprio professor (`GET /api/schedules?teacherId=...`), sem edição — só visualização e exportação em PDF individual.
 - **Laboratórios**: agenda compartilhada da escola; o professor pode excluir suas próprias reservas.
 - **Minhas Matérias** (`MateriasTab`): consulta matérias vinculadas e as turmas/quantidade de aulas semanais encontradas nos horários; professores não podem alterar vínculos.
@@ -54,7 +55,7 @@ Rotas privadas validam o bearer token do Supabase Auth e o perfil no servidor po
 
 | Rota | O que faz |
 |---|---|
-| `GET /api/school-periods` | Lista os períodos cadastrados para a escola da direção autenticada. |
+| `GET /api/school-periods` | Lista os períodos da própria escola para direção e professores; o professor tem acesso somente de leitura. `dev` pode consultar informando `schoolId`. |
 | `POST /api/school-periods` | Cria ou substitui um período da escola/turno após validar o intervalo e evitar sobreposição. |
 | `PATCH /api/school-periods/:id` / `DELETE /api/school-periods/:id` | Atualiza ou remove um período pertencente à escola da direção. |
 | `GET /api/schools/public` | Lista somente `id` e `name` das escolas ativas para o login, sem autenticação nem cache e com limite de requisições por IP. `/api/public/schools` permanece como alias compatível. |

@@ -1071,13 +1071,13 @@ const updateUserProfile = async (
 };
 
 const getSchoolIdForPeriods = (req: any, res: any, userInfo: UserInfo): string | null => {
-  if (userInfo.role === 'diretor') {
+  if (userInfo.role === 'diretor' || userInfo.role === 'teacher') {
     if (req.query.schoolId && req.query.schoolId !== userInfo.school_id) {
       res.status(403).json({ error: 'Acesso negado' });
       return null;
     }
     if (!userInfo.school_id) {
-      res.status(400).json({ error: 'Associe sua conta a uma escola antes de configurar os períodos.' });
+      res.status(400).json({ error: 'Associe sua conta a uma escola antes de consultar os períodos.' });
       return null;
     }
     return userInfo.school_id;
@@ -1092,7 +1092,7 @@ const getSchoolIdForPeriods = (req: any, res: any, userInfo: UserInfo): string |
 };
 
 app.get('/api/school-periods', async (req, res) => {
-  const userInfo = await requireRole(req, res, ['dev', 'diretor']);
+  const userInfo = await requireRole(req, res, ['dev', 'diretor', 'teacher']);
   if (!userInfo) return;
   const schoolId = getSchoolIdForPeriods(req, res, userInfo);
   if (!schoolId) return;

@@ -94,7 +94,7 @@ let devAuditLogs = [];
 let devErrorLogs = [];
 let devPanelErrors = {};
 let stats = { total: 0, confirmed: 0, absent: 0, pending: 0 };
-let currentTab = 'horarios';
+let currentTab = 'dashboard';
 let authMode = 'closed'; // 'login' or 'closed'
 let loginSchools = [];
 let loginSchoolsState = 'idle';
@@ -106,6 +106,10 @@ let reportWeek = 'all';
 let reportTurno = 'todos';
 let scheduleListTurno = 'todos';
 let teacherTurno = 'todos';
+let teacherScheduleDate = '';
+let teacherDashboardStatus = 'idle';
+let teacherDashboardError = '';
+let teacherSchoolName = '';
 let teacherSubjectSearch = '';
 let expandedTeacherSubjectCards = new Set();
 let reportTeacher = 'all';
@@ -343,6 +347,36 @@ const getDetectedTurmas = (filteredSchedules) => {
 const getDayOfWeek = (dateObj) => {
   const day = dateObj.getDay();
   return day === 0 ? 7 : day;
+};
+
+const getSaoPauloDateTimeParts = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map(part => [part.type, part.value]));
+};
+
+const getSaoPauloToday = () => {
+  const parts = getSaoPauloDateTimeParts();
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
+const getDateRangeForWeek = (monday) => Array.from({ length: 6 }, (_value, index) => {
+  const date = new Date(`${monday}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + index);
+  return date.toISOString().slice(0, 10);
+});
+
+const formatIsoDate = (dateString, options = { day: 'numeric', month: 'long' }) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString || '')) return '';
+  return new Intl.DateTimeFormat('pt-BR', { ...options, timeZone: 'UTC' })
+    .format(new Date(`${dateString}T12:00:00Z`));
 };
 
 const REPORT_SUBJECT_ABBREVIATIONS = new Map([
@@ -796,14 +830,301 @@ const LandingView = () => `
   </div>
 `;
 
+const TeacherDashboardView = () => {
+  const today = getSaoPauloToday();
+  const nowParts = getSaoPauloDateTimeParts();
+  const currentMinutes = Number(nowParts.hour) * 60 + Number(nowParts.minute);
+  const todayDate = new Date(`${today}T00:00:00Z`);
+  const weekdayOffset = (todayDate.getUTCDay() + 6) % 7;
+  const mondayDate = new Date(todayDate);
+  mondayDate.setUTCDate(mondayDate.getUTCDate() - weekdayOffset);
+  const monday = mondayDate.toISOString().slice(0, 10);
+  const weekDates = getDateRangeForWeek(monday);
+  const weekDateSet = new Set(weekDates);
+  const mySchedules = schedules.filter(schedule =>
+    schedule.teacherId === user?.uid &&
+    schedule.school_id === user?.school_id &&
+    /^\d{4}-\d{2}-\d{2}$/.test(schedule.date || '')
+  );
+  const weekSchedules = mySchedules.filter(schedule => weekDateSet.has(schedule.date));
+  const getLessonTime = schedule => {
+    const periodNumber = schedule.periodNumber || schedule.period_number;
+    const period = schoolPeriods.find(item =>
+      item.school_id === user?.school_id &&
+      item.turno === getScheduleTurno(schedule) &&
+      (periodNumber
+        ? Number(item.periodNumber) === Number(periodNumber)
+        : String(item.startTime || '').slice(0, 5) === String(schedule.startTime || '').slice(0, 5))
+    );
+    return {
+      start: String(schedule.startTime || period?.startTime || '').slice(0, 5),
+      end: String(schedule.endTime || period?.endTime || '').slice(0, 5)
+    };
+  };
+  const todaySchedules = mySchedules
+    .filter(schedule => schedule.date === today)
+    .sort((a, b) => getLessonTime(a).start.localeCompare(getLessonTime(b).start));
+  const getMinutes = time => {
+    const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time);
+    return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+  };
+  const currentLesson = todaySchedules.find(schedule => {
+    const time = getLessonTime(schedule);
+    const start = getMinutes(time.start);
+    const end = getMinutes(time.end);
+    return start !== null && end !== null && currentMinutes >= start && currentMinutes < end;
+  });
+  const nextLesson = todaySchedules.find(schedule => {
+    const start = getMinutes(getLessonTime(schedule).start);
+    return start !== null && start > currentMinutes;
+  });
+  const assignedSubjects = (window.teacherSubjects || [])
+    .filter(item => typeof item.subject === 'string' && item.subject.trim())
+    .sort((a, b) => a.subject.localeCompare(b.subject, 'pt-BR'));
+  const normalizeSubject = value => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
+  const subjectLessonCounts = new Map();
+  weekSchedules.forEach(schedule => {
+    const key = normalizeSubject(schedule.subject);
+    subjectLessonCounts.set(key, (subjectLessonCounts.get(key) || 0) + 1);
+  });
+  const classGroups = new Map();
+  weekSchedules.forEach(schedule => {
+    const name = String(schedule.classGroup || '').trim();
+    const key = name.toLocaleLowerCase('pt-BR');
+    if (!name || key === 'sem_turma') return;
+    if (!classGroups.has(key)) classGroups.set(key, { name, subjects: new Set(), lessons: new Set() });
+    const group = classGroups.get(key);
+    if (schedule.subject) group.subjects.add(schedule.subject);
+    const time = getLessonTime(schedule);
+    group.lessons.add(`${schedule.date}|${time.start}|${time.end}`);
+  });
+  const uniqueClasses = [...classGroups.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  const myBookings = labBookings
+    .filter(booking =>
+      booking.teacherId === user?.uid &&
+      booking.school_id === user?.school_id &&
+      /^\d{4}-\d{2}-\d{2}$/.test(booking.date || '') &&
+      booking.date >= today
+    )
+    .sort((a, b) => a.date.localeCompare(b.date) || String(a.startTime).localeCompare(String(b.startTime)));
+  const nextSevenDays = new Set(Array.from({ length: 7 }, (_value, index) => {
+    const date = new Date(`${today}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + index);
+    return date.toISOString().slice(0, 10);
+  }));
+  const nextWeekBookingsCount = myBookings.filter(booking => nextSevenDays.has(booking.date)).length;
+  const statusCounts = weekSchedules.reduce((counts, schedule) => {
+    if (Object.prototype.hasOwnProperty.call(counts, schedule.status)) counts[schedule.status]++;
+    return counts;
+  }, { pending: 0, confirmed: 0, absent: 0 });
+  const firstName = String(user?.displayName || '').trim().split(/\s+/)[0] || 'professor(a)';
+  const todayLabel = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'UTC',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }).format(new Date(`${today}T12:00:00Z`));
+  const weekDayNames = weekDates.map(date => new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'UTC',
+    weekday: 'long'
+  }).format(new Date(`${date}T12:00:00Z`)));
+  const lessonStatusLabels = { pending: 'Pendente', confirmed: 'Confirmada', absent: 'Ausente' };
+  const schoolLabel = teacherSchoolName || schoolName;
+
+  const navigateToScheduleDay = (date) => `actions.openTeacherScheduleDay('${date}')`;
+  const lessonCard = (schedule, highlightedAs) => {
+    const time = getLessonTime(schedule);
+    const isCurrent = highlightedAs === 'current';
+    const isNext = highlightedAs === 'next';
+    return `
+      <article class="rounded-xl border ${isCurrent ? 'border-emerald-300 bg-emerald-50' : isNext ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-white'} p-4">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-black text-slate-900">${escapeHtml(time.start)}–${escapeHtml(time.end)}</span>
+              ${isCurrent ? '<span class="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black uppercase text-emerald-800">Acontecendo agora</span>' : ''}
+              ${isNext ? '<span class="rounded-full bg-blue-100 px-2.5 py-1 text-[10px] font-black uppercase text-blue-800">Próxima aula</span>' : ''}
+            </div>
+            <h4 class="mt-2 font-bold text-slate-800">${escapeHtml(schedule.subject || 'Matéria não informada')}</h4>
+            <p class="mt-1 text-sm text-slate-600">Turma: ${escapeHtml(schedule.classGroup || 'Não informada')} · Sala: ${escapeHtml(schedule.room || 'Não informada')}</p>
+          </div>
+          <div class="flex shrink-0 flex-wrap gap-2 sm:flex-col sm:items-end">
+            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">${escapeHtml(TURNO_LABELS[getScheduleTurno(schedule)])}</span>
+            <span class="rounded-full px-3 py-1 text-xs font-bold ${schedule.status === 'confirmed' ? 'bg-emerald-100 text-emerald-800' : schedule.status === 'absent' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}">${lessonStatusLabels[schedule.status] || 'Pendente'}</span>
+          </div>
+        </div>
+      </article>
+    `;
+  };
+
+  return `
+    <div class="space-y-6">
+      <section class="rounded-3xl bg-gradient-to-br from-blue-700 to-slate-900 p-6 text-white shadow-lg md:p-8">
+        <div class="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-sm font-bold text-blue-100">${escapeHtml(todayLabel)}</p>
+            <h3 class="mt-2 text-2xl font-black md:text-3xl">Olá, ${escapeHtml(firstName)}!</h3>
+            <p class="mt-2 flex items-center gap-2 text-sm font-medium text-blue-100"><i data-lucide="building-2" class="h-4 w-4"></i>${escapeHtml(schoolLabel)}</p>
+            ${teacherDashboardStatus === 'ready' && todaySchedules.length === 0 ? '<p class="mt-4 text-sm font-semibold text-white/90">Hoje é um dia sem aulas para você. Aproveite para organizar sua semana!</p>' : ''}
+          </div>
+          <button type="button" onclick="actions.refreshSchedules()" class="inline-flex items-center justify-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-white/20">
+            <i data-lucide="refresh-cw" class="h-4 w-4"></i> Atualizar
+          </button>
+        </div>
+      </section>
+
+      ${teacherDashboardStatus === 'loading' ? `
+        <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          ${Array.from({ length: 4 }, () => '<div class="h-24 animate-pulse rounded-2xl bg-slate-200"></div>').join('')}
+        </div>
+        <div class="h-64 animate-pulse rounded-2xl bg-slate-200"></div>
+        <p class="text-center text-sm font-medium text-slate-500">Carregando seus horários, matérias, períodos e reservas...</p>
+      ` : teacherDashboardStatus === 'error' ? `
+        <section class="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center">
+          <i data-lucide="circle-alert" class="mx-auto h-8 w-8 text-rose-600"></i>
+          <h4 class="mt-3 font-black text-rose-900">Não foi possível carregar o dashboard</h4>
+          <p class="mt-1 text-sm text-rose-800">${escapeHtml(teacherDashboardError || 'Tente novamente em instantes.')}</p>
+          <button type="button" onclick="actions.refreshSchedules()" class="mt-4 rounded-lg bg-rose-700 px-4 py-2 text-sm font-bold text-white hover:bg-rose-800">Tentar novamente</button>
+        </section>
+      ` : `
+        <section class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          ${[
+            ['calendar-days', 'Aulas na semana', weekSchedules.length, 'text-blue-700 bg-blue-50'],
+            ['sun', 'Aulas hoje', todaySchedules.length, 'text-amber-700 bg-amber-50'],
+            ['flask-conical', 'Reservas em 7 dias', nextWeekBookingsCount, 'text-violet-700 bg-violet-50'],
+            ['users-round', 'Turmas diferentes', uniqueClasses.length, 'text-emerald-700 bg-emerald-50']
+          ].map(([icon, label, count, style]) => `
+            <article class="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${style}"><i data-lucide="${icon}" class="h-5 w-5"></i></span>
+              <div><p class="text-2xl font-black text-slate-900">${count}</p><p class="text-xs font-bold text-slate-500">${label}</p></div>
+            </article>
+          `).join('')}
+        </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h4 class="text-lg font-black text-slate-900">Aulas de hoje</h4>
+              <p class="text-sm text-slate-500">${todaySchedules.length ? `${todaySchedules.length} aula${todaySchedules.length === 1 ? '' : 's'} na agenda` : 'Sua agenda está livre hoje.'}</p>
+            </div>
+            <button type="button" onclick="actions.switchTab('horarios')" class="text-sm font-bold text-blue-700 hover:text-blue-900">Ver horários</button>
+          </div>
+          ${todaySchedules.length
+            ? `<div class="space-y-3">${todaySchedules.map(schedule => lessonCard(schedule, schedule === currentLesson ? 'current' : schedule === nextLesson ? 'next' : '')).join('')}</div>`
+            : '<div class="rounded-xl bg-slate-50 p-6 text-center text-sm font-medium text-slate-500">Não há aulas programadas para hoje. Confira a semana abaixo para ver suas próximas aulas.</div>'}
+        </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+          <div class="mb-4">
+            <h4 class="text-lg font-black text-slate-900">Próximas aulas da semana</h4>
+            <p class="text-sm text-slate-500">${escapeHtml(formatIsoDate(weekDates[0]))} a ${escapeHtml(formatIsoDate(weekDates[5]))} · toque em um dia para ver os horários</p>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            ${weekDates.map((date, index) => {
+              const daySchedules = weekSchedules.filter(schedule => schedule.date === date)
+                .sort((a, b) => getLessonTime(a).start.localeCompare(getLessonTime(b).start));
+              const classes = [...new Set(daySchedules.map(schedule => schedule.classGroup).filter(Boolean))];
+              return `
+                <button type="button" onclick="${navigateToScheduleDay(date)}" class="rounded-xl border ${date === today ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-white'} p-4 text-left transition-colors hover:border-blue-300 hover:bg-blue-50">
+                  <span class="flex items-center justify-between gap-2">
+                    <span class="font-black capitalize text-slate-800">${escapeHtml(weekDayNames[index])}${date === today ? ' · hoje' : ''}</span>
+                    <span class="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600">${daySchedules.length}</span>
+                  </span>
+                  <span class="mt-2 block text-sm text-slate-600">${classes.length ? classes.map(escapeHtml).join(', ') : 'Sem aulas'}</span>
+                </button>
+              `;
+            }).join('')}
+          </div>
+        </section>
+
+        <div class="grid gap-6 xl:grid-cols-2">
+          <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+            <div class="mb-4 flex items-center justify-between gap-3">
+              <h4 class="text-lg font-black text-slate-900">Turmas cadastradas</h4>
+              <button type="button" onclick="actions.switchTab('materias')" class="text-sm font-bold text-blue-700 hover:text-blue-900">Ver matérias</button>
+            </div>
+            ${uniqueClasses.length ? `
+              <div class="space-y-3">
+                ${uniqueClasses.map(group => `
+                  <div class="flex flex-col gap-2 rounded-xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div><p class="font-bold text-slate-800">${escapeHtml(group.name)}</p><p class="text-sm text-slate-500">${[...group.subjects].map(escapeHtml).join(', ') || 'Matéria não informada'}</p></div>
+                    <span class="shrink-0 text-xs font-bold text-slate-600">${group.lessons.size} aula${group.lessons.size === 1 ? '' : 's'} nesta semana</span>
+                  </div>
+                `).join('')}
+              </div>
+            ` : '<p class="rounded-xl bg-slate-50 p-5 text-sm text-slate-500">Nenhuma turma aparece nos seus horários desta semana.</p>'}
+          </section>
+
+          <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+            <div class="mb-4 flex items-center justify-between gap-3">
+              <h4 class="text-lg font-black text-slate-900">Minhas matérias</h4>
+              <button type="button" onclick="actions.switchTab('materias')" class="text-sm font-bold text-blue-700 hover:text-blue-900">Abrir aba</button>
+            </div>
+            ${assignedSubjects.length ? `
+              <div class="space-y-3">
+                ${assignedSubjects.map(subject => {
+                  const count = subjectLessonCounts.get(normalizeSubject(subject.subject)) || 0;
+                  return `<div class="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-4"><span class="font-bold text-slate-800">${escapeHtml(subject.subject)}</span><span class="shrink-0 text-xs font-bold text-slate-600">${count} aula${count === 1 ? '' : 's'}</span></div>`;
+                }).join('')}
+              </div>
+            ` : '<p class="rounded-xl bg-amber-50 p-5 text-sm font-medium text-amber-800">Você ainda não tem matérias vinculadas.</p>'}
+          </section>
+        </div>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <div><h4 class="text-lg font-black text-slate-900">Laboratórios</h4><p class="text-sm text-slate-500">Próximas reservas feitas por você</p></div>
+            <button type="button" onclick="actions.switchTab('labs')" class="text-sm font-bold text-blue-700 hover:text-blue-900">Abrir laboratórios</button>
+          </div>
+          ${myBookings.length ? `
+            <div class="space-y-3">
+              ${myBookings.slice(0, 5).map(booking => `
+                <div class="flex flex-col gap-2 rounded-xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <span class="font-bold text-slate-800">${booking.labId === 'info' ? 'Informática' : 'Química'}</span>
+                  <span class="text-sm font-medium text-slate-600">${escapeHtml(formatIsoDate(booking.date, { day: 'numeric', month: 'long', year: 'numeric' }))} · ${escapeHtml(String(booking.startTime).slice(0, 5))}–${escapeHtml(String(booking.endTime).slice(0, 5))}</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : `
+            <div class="rounded-xl bg-slate-50 p-5 text-center">
+              <p class="text-sm font-medium text-slate-500">Você não tem reservas futuras de laboratório.</p>
+              <button type="button" onclick="actions.switchTab('labs')" class="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Ver laboratórios</button>
+            </div>
+          `}
+        </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+          <div class="mb-4">
+            <h4 class="text-lg font-black text-slate-900">Status das aulas</h4>
+            <p class="text-sm text-slate-500">Resumo da semana atual</p>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-3">
+            ${[
+              ['pending', 'Pendentes', 'bg-amber-50 text-amber-800'],
+              ['confirmed', 'Confirmadas', 'bg-emerald-50 text-emerald-800'],
+              ['absent', 'Ausentes', 'bg-rose-50 text-rose-800']
+            ].map(([status, label, style]) => `<div class="rounded-xl ${style} p-4"><p class="text-2xl font-black">${statusCounts[status]}</p><p class="text-xs font-bold">${label}</p></div>`).join('')}
+          </div>
+        </section>
+      `}
+    </div>
+  `;
+};
+
 const TeacherView = () => {
   const teacherSchedules = filterSchedulesByTurno(
-    schedules.filter(s => s.teacherId === user.uid),
+    schedules.filter(s =>
+      s.teacherId === user.uid &&
+      s.school_id === user.school_id &&
+      (!teacherScheduleDate || s.date === teacherScheduleDate)
+    ),
     teacherTurno
   );
   const slots = getDetectedSlots(teacherSchedules);
 
   const teacherNavItems = [
+    { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
     { id: 'horarios', icon: 'calendar', label: 'Meus Horários' },
     { id: 'labs', icon: 'test-tube', label: 'Laboratórios' },
     { id: 'materias', icon: 'book', label: 'Minhas Matérias' },
@@ -826,7 +1147,7 @@ const TeacherView = () => {
             <i data-lucide="menu" class="w-6 h-6"></i>
           </button>
           <div>
-            <h2 class="font-bold text-base md:text-lg capitalize">${currentTab === 'horarios' ? 'Meus Horários' : (currentTab === 'labs' ? 'Laboratórios' : 'Minhas Matérias')}</h2>
+            <h2 class="font-bold text-base md:text-lg capitalize">${currentTab === 'dashboard' ? 'Dashboard' : currentTab === 'horarios' ? 'Meus Horários' : (currentTab === 'labs' ? 'Laboratórios' : 'Minhas Matérias')}</h2>
             ${currentTab === 'materias' ? '<p class="hidden text-xs font-medium text-slate-500 sm:block">Veja suas matérias e as turmas de cada uma.</p>' : ''}
           </div>
         </div>
@@ -843,7 +1164,14 @@ const TeacherView = () => {
       </header>
 
       <div class="p-4 md:p-10 flex-1 overflow-y-auto space-y-6 md:space-y-8 print:p-0">
+        ${currentTab === 'dashboard' ? TeacherDashboardView() : ''}
         ${currentTab === 'horarios' ? `
+          ${teacherScheduleDate ? `
+            <div class="flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <p class="text-sm font-semibold text-blue-900">Exibindo aulas de ${escapeHtml(formatIsoDate(teacherScheduleDate, { weekday: 'long', day: 'numeric', month: 'long' }))}.</p>
+              <button type="button" onclick="actions.clearTeacherScheduleDay()" class="text-sm font-bold text-blue-700 hover:text-blue-900">Limpar filtro de dia</button>
+            </div>
+          ` : ''}
           <!-- Switch between sub-tabs with counts -->
           <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl w-full sm:w-fit mb-6 print:hidden overflow-x-auto scrollbar-none select-none shrink-0">
             <button onclick="actions.setTeacherSchedulesTab('grid')" class="px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
@@ -2833,7 +3161,7 @@ const slidesContent = [
 const TAB_ACCESS = {
   dev: ['overview', 'dev_health', 'dev_diagnostics', 'dev_logs', 'dev_audit', 'dev_data', 'escolas', 'materias', 'usuarios'],
   diretor: ['horarios', 'labs', 'materias', 'usuarios', 'relatorios'],
-  teacher: ['horarios', 'labs', 'materias'],
+  teacher: ['dashboard', 'horarios', 'labs', 'materias'],
 };
 
 const actions = {
@@ -2888,6 +3216,18 @@ const actions = {
     this.init();
   },
 
+  openTeacherScheduleDay(date) {
+    if (user?.role !== 'teacher' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    teacherScheduleDate = date;
+    currentTab = 'horarios';
+    this.init();
+  },
+
+  clearTeacherScheduleDay() {
+    teacherScheduleDate = '';
+    this.init();
+  },
+
   setReportTurno(val) {
     reportTurno = val;
     this.renderCurrentView();
@@ -2926,6 +3266,11 @@ const actions = {
       } else {
         if (!TAB_ACCESS[user.role]?.includes(currentTab)) {
           currentTab = TAB_ACCESS[user.role]?.[0] || 'horarios';
+        }
+        if (user.role === 'teacher' && currentTab === 'dashboard') {
+          teacherDashboardStatus = 'loading';
+          teacherDashboardError = '';
+          this.renderCurrentView();
         }
         await this.refreshData();
         if (user.role === 'dev') await this.loadDeveloperPanel(currentTab);
@@ -3301,6 +3646,8 @@ const actions = {
     try {
       user = await api.post('/api/auth/login', { email, password, schoolId });
       localStorage.setItem('user', JSON.stringify(user));
+      currentTab = user.role === 'teacher' ? 'dashboard' : 'horarios';
+      teacherScheduleDate = '';
       authMode = 'closed';
       this.init();
     } catch (err) {
@@ -3311,7 +3658,8 @@ const actions = {
   logout() {
     localStorage.removeItem('user');
     user = null;
-    currentTab = 'horarios';
+    currentTab = 'dashboard';
+    teacherScheduleDate = '';
     authMode = 'closed';
     this.init();
   },
@@ -3408,25 +3756,64 @@ const actions = {
           api.get(`/api/schedules?teacherId=${user.uid}`),
           api.get('/api/labs/bookings'),
           api.get(`/api/teachers/${user.uid}/subjects`),
-          api.get('/api/school-subjects')
+          api.get('/api/school-subjects'),
+          api.get('/api/school-periods'),
+          api.get('/api/schools/public')
         ]);
-        const [s, lb, m, subs] = results.map((r, i) => r.status === 'fulfilled' ? r.value : (console.error(`Data fetch #${i} failed:`, r.reason), []));
-        schedules = this.normalizeSchedules(s || []);
+        const [s, lb, m, subs, periods, publicSchools] = results.map((result, index) => {
+          if (result.status === 'rejected') {
+            console.error(`Data fetch #${index} failed:`, result.reason);
+            return [];
+          }
+          if (!Array.isArray(result.value)) {
+            const error = new Error('O servidor retornou dados em formato inválido.');
+            console.error(`Data fetch #${index} failed:`, error);
+            return [];
+          }
+          return result.value;
+        });
+        schedules = this.normalizeSchedules(s || []).filter(schedule =>
+          schedule.teacherId === user.uid && schedule.school_id === user.school_id
+        );
         allUsers = [];
         schoolSubjects = subs || [];
         labBookings = lb || [];
         window.teacherSubjects = m || [];
+        schoolPeriods = periods || [];
+        schoolPeriodsError = results[4].status === 'rejected'
+          ? results[4].reason?.message || 'Não foi possível carregar os períodos escolares.'
+          : '';
+        teacherSchoolName = (publicSchools || []).find(school => school.id === user.school_id)?.name
+          || loginSchools.find(school => school.id === user.school_id)?.name
+          || '';
+
+        const requiredData = [results[0], results[1], results[2], results[4]];
+        const failedRequiredData = requiredData.find(result =>
+          result.status === 'rejected' || !Array.isArray(result.value)
+        );
+        if (failedRequiredData) {
+          teacherDashboardStatus = 'error';
+          teacherDashboardError = failedRequiredData.status === 'rejected'
+            ? failedRequiredData.reason?.message || 'Não foi possível carregar todos os dados.'
+            : 'O servidor retornou dados em formato inválido.';
+        } else {
+          teacherDashboardStatus = 'ready';
+          teacherDashboardError = '';
+        }
       }
     } catch (err) {
       console.error('Data refresh error:', err);
+      if (user?.role === 'teacher') {
+        teacherDashboardStatus = 'error';
+        teacherDashboardError = err.message || 'Não foi possível carregar os dados do dashboard.';
+      }
     } finally {
       isRefreshingData = false;
     }
   },
 
   async refreshSchedules() {
-    await this.refreshData();
-    this.init();
+    await this.init();
   },
 
   toggleUserSelection(uid, checked) {
