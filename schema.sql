@@ -1,0 +1,92 @@
+-- Studia Schema
+-- This is the base schema. Apply migrations/001 through migrations/010 in order
+-- to reach the current multi-school schema, subject catalog, periods, and shifts.
+
+-- Users table
+CREATE TABLE IF NOT EXISTS users (
+  uid UUID PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  displayName TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'teacher' CHECK (role IN ('teacher', 'diretor', 'dev')),
+  subject TEXT
+);
+
+-- A teacher can teach more than one subject.
+CREATE TABLE IF NOT EXISTS teacher_subjects (
+  id BIGSERIAL PRIMARY KEY,
+  teacher_id UUID NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+  subject TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_teacher_subjects_teacher_subject
+  ON teacher_subjects (teacher_id, subject);
+
+-- Schedules table (aulas/horários)
+CREATE TABLE IF NOT EXISTS schedules (
+  id BIGSERIAL PRIMARY KEY,
+  date TEXT NOT NULL,
+  startTime TEXT NOT NULL,
+  endTime TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  room TEXT NOT NULL,
+  teacherId UUID NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+  teacherName TEXT NOT NULL,
+  classGroup TEXT,
+  turno TEXT NOT NULL DEFAULT 'manha' CHECK (turno IN ('manha', 'tarde', 'noite')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'absent')),
+  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Lab bookings table (reservas de laboratório)
+CREATE TABLE IF NOT EXISTS lab_bookings (
+  id BIGSERIAL PRIMARY KEY,
+  labId TEXT NOT NULL CHECK (labId IN ('info', 'chem')),
+  teacherId UUID NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+  teacherName TEXT NOT NULL,
+  date TEXT NOT NULL,
+  startTime TIME NOT NULL,
+  endTime TIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS school_periods (
+  id BIGSERIAL PRIMARY KEY,
+  school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  turno TEXT NOT NULL CHECK (turno IN ('manha', 'tarde', 'noite')),
+  period_number INTEGER NOT NULL CHECK (period_number BETWEEN 1 AND 6),
+  name TEXT NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  CONSTRAINT school_periods_valid_interval CHECK (end_time > start_time),
+  CONSTRAINT school_periods_turno_period_limit_check CHECK (
+    (turno IN ('manha', 'tarde') AND period_number <= 6)
+    OR (turno = 'noite' AND period_number <= 5)
+  ),
+  CONSTRAINT school_periods_school_turno_period_unique UNIQUE (school_id, turno, period_number)
+);
+
+-- Legacy storage retained for existing certificate records; the feature and API are disabled.
+CREATE TABLE IF NOT EXISTS certificates (
+  id BIGSERIAL PRIMARY KEY,
+  teacherId UUID NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+  teacherName TEXT NOT NULL,
+  date TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved')),
+  imageUrl TEXT,
+  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_schedules_teacherId ON schedules(teacherId);
+CREATE INDEX IF NOT EXISTS idx_schedules_date ON schedules(date);
+CREATE INDEX IF NOT EXISTS idx_lab_bookings_teacherId ON lab_bookings(teacherId);
+CREATE INDEX IF NOT EXISTS idx_lab_bookings_date ON lab_bookings(date);
+CREATE INDEX IF NOT EXISTS idx_certificates_teacherId ON certificates(teacherId);
+CREATE INDEX IF NOT EXISTS idx_certificates_date ON certificates(date);
+
+-- Insert sample data (opcional - você pode deletar depois)
+INSERT INTO users (uid, email, displayName, role, subject) VALUES
+  ('550e8400-e29b-41d4-a716-446655440001', 'dev@escola.com', 'Desenvolvedor', 'dev', NULL),
+  ('550e8400-e29b-41d4-a716-446655440002', 'diretor@escola.com', 'Diretor da Escola', 'diretor', NULL),
+  ('550e8400-e29b-41d4-a716-446655440003', 'professor@escola.com', 'Professor João', 'teacher', 'Matemática')
+ON CONFLICT DO NOTHING;

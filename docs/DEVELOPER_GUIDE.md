@@ -1,0 +1,212 @@
+# Guia do Desenvolvedor (Plataforma)
+
+## O que faz o desenvolvedor?
+
+O cargo **Desenvolvedor** concentra as funções globais da plataforma. Tem acesso a:
+- ✅ Criar/editar/deletar escolas
+- ✅ Gerenciar diretores
+- ✅ Ver estatísticas globais da plataforma
+- ✅ Acessar painel de infraestrutura
+
+O desenvolvedor pode gerenciar **múltiplas escolas** simultaneamente. As antigas contas de administrador são convertidas para desenvolvedor pela migração `006_remove_admin_role.sql`.
+
+## Login
+
+1. Abra o site
+2. Click em **"Já tenho conta"**
+3. Email: seu email de desenvolvedor
+4. Senha: sua senha
+5. Click **"Entrar"**
+
+Você vê o console do desenvolvedor com:
+- **Visão geral** — indicadores gerais da plataforma
+- **Saúde do sistema** — disponibilidade da API e do banco
+- **Diagnóstico** — latência, contagens e verificações básicas de integridade
+- **Logs de erros** — últimos erros HTTP 5xx, sem conteúdo de requisições
+- **Auditoria** — alterações concluídas e exportações feitas por usuários autenticados
+- **Dados e backups** — contagens, exportação CSV por tabela e orientação para backups
+- **Escolas e Usuários** — administração global da plataforma
+
+Logs e auditoria dependem da migração `007_developer_console_logs.sql`. Exportações CSV exigem confirmação e podem conter informações pessoais; cada tabela tem limite de 5.000 registros por exportação. Os backups completos são gerenciados pelo Supabase.
+
+## Aba: Visão Geral
+
+Mostra estatísticas da plataforma:
+
+| Card | Mostra |
+|------|--------|
+| **Status** | Conexão com API (OK / Offline) |
+| **Usuários** | Total de contas no sistema |
+| **Horários** | Total de aulas cadastradas |
+| **Labs** | Total de reservas de laboratório |
+
+### Infraestrutura
+
+Tabela com informações técnicas:
+- Banco de dados: Supabase Postgres
+- Autenticação: Auth + RLS
+- Hosting: Vercel/Railway
+- etc
+
+## Aba: Usuários
+
+### Ver Todos os Usuários
+
+Tabela mostrando:
+- Email
+- Nome
+- Cargo (Desenvolvedor, Diretor / Direção Pedagógica, Professor)
+- Escola
+- Ações
+
+### Criar Novo Diretor
+
+1. Click botão **"+ Adicionar Diretor"**
+2. Preencha:
+   - Email: email do diretor
+   - Nome: nome completo
+   - Escola: selecione ou crie
+   - Senha: deixamos gerado ou você defini
+3. Click **"Criar"**
+
+O diretor recebe email com credenciais e acessa.
+
+### Editar Cargo
+
+1. Na tabela, encontre o usuário
+2. Click no dropdown ao lado do nome
+3. Selecione novo cargo:
+   - **Desenvolvedor** → Concede acesso global à plataforma
+   - **Diretor / Direção Pedagógica** → Concede acesso à escola associada
+   - **Professor** → Rebaixa a professor
+4. Salva automaticamente
+
+⚠️ **Não é possível alterar o próprio cargo.**
+
+### Deletar Usuário
+
+1. Click no ícone 🗑️ do usuário
+2. Confirma: "Tem certeza?"
+3. Usuário deletado (irreversível)
+
+⚠️ **Todas as aulas/labs/atestados desse usuário também são deletados**
+
+## Aba: Horários
+
+Ver **todas** as aulas de **todas** as escolas.
+
+### Editar Aula
+
+1. Encontre a aula na tabela
+2. Click em ✏️
+3. Edite dados
+4. Click **"Salvar"**
+
+### Deletar Aula
+
+1. Click em 🗑️
+2. Confirma
+3. Aula deletada
+
+## Aba: Laboratórios
+
+Ver **todas** as reservas de laboratório.
+
+Use os filtros para localizar reservas por data, laboratório ou professor. A agenda exibe as próximas reservas e lista os horários em ordem cronológica. Professores podem cancelar as próprias reservas; a direção pode cancelar reservas da escola.
+
+Ao criar uma reserva, selecione o laboratório, data e intervalo. O sistema rejeita horários inválidos e conflitos com outra reserva do mesmo espaço na escola.
+
+### Deletar Reserva
+
+1. Click em 🗑️ da reserva
+2. Confirma
+3. Reserva deletada
+
+Os registros históricos de atestados permanecem no banco, mas não podem mais ser enviados, consultados ou aprovados pelo sistema.
+
+## Aba: Relatórios
+
+Gerar relatórios em PDF.
+
+### Filtros
+
+- **Tipo:** Professores / Turmas
+- **Semana:** Selecione semana
+- **Turno:** Matutino / Vespertino / Noturno
+- **Tamanho de card:** Pequeno / Médio / Grande
+
+### Gerar PDF
+
+1. Preencha filtros
+2. Click **"Gerar Relatório"**
+3. PDF baixa automaticamente
+
+## Tarefas Comuns
+
+### Cenário 1: Adicionar Nova Escola
+
+1. Aba **"Usuários"**
+2. Click **"+ Adicionar Diretor"**
+3. Em "Escola", selecione **"+ Nova Escola"**
+4. Preencha nome da escola
+5. Cria e já associa o diretor
+
+### Cenário 2: Transferir Professor para Outra Escola
+
+❌ Não é possível transferir (design atual)
+
+**Solução:** Deletar professor, recreate na outra escola
+
+### Cenário 3: Gerar Relatório de Frequência
+
+1. Aba **"Relatórios"**
+2. Tipo: **Professores**
+3. Selecione semana
+4. Click **"Gerar Relatório"**
+5. PDF desce com grade de frequência
+
+## Permissões
+
+### Desenvolvedor consegue:
+- ✅ Ver todos os dados de todas as escolas
+- ✅ Criar/editar/deletar usuários
+- ✅ Criar/editar/deletar escolas
+- ✅ Criar/editar/deletar aulas
+- ✅ Criar/editar/deletar labs
+- ✅ Gerar relatórios
+
+### Desenvolvedor NÃO consegue:
+- ❌ Deletar sua própria conta
+- ❌ Se rebaixar
+- ❌ Alterar o próprio cargo
+
+## Boas Práticas
+
+1. **Backup antes de grandes mudanças** — Supabase faz automático, mas bom avisar
+2. **Testar com conta de test primeiro** — Não mexer em dados reais sem teste
+3. **Documentar mudanças** — Se deletar algo importante, registrar motivo
+4. **Monitorar uso** — Ver quantas escolas/professores estão usando
+5. **Comunicar com diretores** — Se houver downtime, avisar com antecedência
+
+## Suporte & Troubleshooting
+
+### Problema: Diretor não consegue ver seus professores
+- [ ] Verifique que professor tem `school_id` da escola do diretor
+- [ ] Diretor tem `role='diretor'`?
+- [ ] Sugerir refresh F5
+
+### Problema: Aula não aparece na tabela
+- [ ] Aula foi criada?
+- [ ] Está na escola correta?
+- [ ] Sugerir refresh
+
+### Problema: Não consigo criar diretor
+- [ ] Email já existe?
+- [ ] Escola foi selecionada?
+- [ ] Verifique logs do servidor
+
+## Próximos Passos
+
+- Leia [[DIRETOR_GUIDE|Guia do Diretor]]
+- Leia [[PROFESSOR_GUIDE|Guia do Professor]]
+- Consulte [[ARQUITETURA|Arquitetura]] para entender como funciona

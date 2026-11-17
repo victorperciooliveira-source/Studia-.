@@ -1,0 +1,3 @@
+ALTER TABLE dev_audit_logs
+  ADD COLUMN IF NOT EXISTS target_uid UUID,
+  ADD COLUMN IF NOT EXISTS details JSONB;
