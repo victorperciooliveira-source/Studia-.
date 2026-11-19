@@ -348,7 +348,7 @@ const HORA_ATIVIDADE_TABELA = {
   11: 4, 12: 4, 13: 4, 14: 4, 15: 5, 16: 5, 17: 5, 18: 6, 19: 6, 20: 6,
   21: 7, 22: 7, 23: 7, 24: 8, 25: 8, 26: 8, 27: 9, 28: 9, 29: 10, 30: 10
 };
-const HORA_ATIVIDADE_TABELA_VALIDADA = false;
+const HORA_ATIVIDADE_TABELA_VALIDADA = true;
 
 const isHourActivitySchedule = schedule =>
   schedule?.status === 'hora-atividade' ||
@@ -2748,12 +2748,6 @@ const CargaHorariaTab = () => {
       <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
         Cada horário de regência cadastrado na semana selecionada conta como uma aula. Para cargas acima de 30 aulas, aplica-se a faixa de 30 aulas da tabela.
       </div>
-      ${!HORA_ATIVIDADE_TABELA_VALIDADA ? `
-        <p role="status" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900">
-          O cálculo da hora-atividade está pausado até a direção confirmar o significado de “15/5” no título do PDF.
-        </p>
-      ` : ''}
-
       <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div class="overflow-x-auto">
           <table class="w-full min-w-[680px] text-left text-sm">
@@ -2847,11 +2841,6 @@ const TeacherAvailabilityTab = () => {
       ${selectedTeacher && currentWeekPlan.unallocated > 0 ? `
         <p role="status" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
           ${currentWeekPlan.unallocated} hora${currentWeekPlan.unallocated === 1 ? '' : 's'}-atividade sem alocação na semana atual de ${escapeHtml(selectedTeacher.displayName || 'Professor')}.
-        </p>
-      ` : ''}
-      ${!HORA_ATIVIDADE_TABELA_VALIDADA ? `
-        <p role="status" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900">
-          A alocação da hora-atividade está pausada até a direção confirmar o significado de “15/5” no título do PDF.
         </p>
       ` : ''}
     </div>
