@@ -104,6 +104,7 @@ let selectedLoginSchoolId = '';
 let labBookings = [];
 let labFilters = { date: '', labId: 'all', teacher: '' };
 let reportWeek = 'all';
+let workloadWeek = '';
 let reportTurno = 'todos';
 let scheduleListTurno = 'todos';
 let teacherTurno = 'todos';
@@ -2121,6 +2122,7 @@ const DEVELOPER_NAV_ITEMS = [
 
 const DIRETOR_NAV_ITEMS = [
   { id: 'horarios', icon: 'calendar', label: 'Horários' },
+  { id: 'carga_horaria', icon: 'clock-3', label: 'Carga horária' },
   { id: 'labs', icon: 'test-tube', label: 'Laboratórios' },
   { id: 'materias', icon: 'book-open', label: 'Matérias' },
   { id: 'usuarios', icon: 'users', label: 'Usuários' },
@@ -2204,6 +2206,7 @@ const DiretorView = () => `
 
       <div class="p-4 md:p-10 flex-1 overflow-y-auto space-y-6 md:space-y-8 print:p-0">
         ${currentTab === 'horarios' ? HorariosTab() : ''}
+        ${currentTab === 'carga_horaria' ? CargaHorariaTab() : ''}
         ${currentTab === 'labs' ? LabsTab() : ''}
         ${currentTab === 'materias' ? MateriasEscolaTab({ viewerRole: 'diretor' }) : ''}
         ${currentTab === 'usuarios' ? UsersTab({ viewerRole: 'diretor' }) : ''}
@@ -2567,6 +2570,96 @@ const EscolasTab = () => `
     </div>
   </div>
 `;
+
+const HORA_ATIVIDADE_BY_LESSON_COUNT = [
+  null, 0, 0, 1, 1, 2, 2, 2, 2, 3,
+  3, 4, 4, 4, 4, 5, 5, 5, 6, 6,
+  6, 7, 7, 7, 8, 8, 8, 9, 9, 10,
+  10
+];
+
+const CargaHorariaTab = () => {
+  const weeks = getWeeksList();
+  const selectedWeek = weeks.includes(workloadWeek) ? workloadWeek : weeks[0] || '';
+  const weekSchedules = selectedWeek
+    ? schedules.filter(schedule => schedule.date && getMondayDateStr(schedule.date) === selectedWeek)
+    : [];
+  const teachersById = new Map(teachers.map(teacher => [teacher.uid, teacher]));
+
+  weekSchedules.forEach(schedule => {
+    if (schedule.teacherId && !teachersById.has(schedule.teacherId)) {
+      teachersById.set(schedule.teacherId, {
+        uid: schedule.teacherId,
+        displayName: schedule.teacherName || 'Professor sem cadastro'
+      });
+    }
+  });
+
+  const rows = [...teachersById.values()].map(teacher => {
+    const lessonCount = weekSchedules.filter(schedule => schedule.teacherId === teacher.uid).length;
+    const activityHours = lessonCount === 0
+      ? 0
+      : HORA_ATIVIDADE_BY_LESSON_COUNT[lessonCount] ?? null;
+    return {
+      teacher,
+      lessonCount,
+      activityHours,
+      totalHours: activityHours === null ? null : lessonCount + activityHours
+    };
+  }).sort((a, b) => String(a.teacher.displayName || '').localeCompare(String(b.teacher.displayName || ''), 'pt-BR'));
+
+  return `
+    <div class="space-y-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h3 class="text-2xl font-black text-slate-900">Carga horária dos professores</h3>
+          <p class="mt-1 text-sm font-medium text-slate-500">Aulas de regência e horas-atividade calculadas pela tabela do PDF.</p>
+        </div>
+        <label class="text-xs font-bold text-slate-500">
+          Semana da grade
+          <select onchange="actions.setWorkloadWeek(this.value)" ${weeks.length ? '' : 'disabled'} class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-50">
+            ${weeks.length
+              ? weeks.map(week => `<option value="${week}" ${selectedWeek === week ? 'selected' : ''}>${getWeekRangeLabel(week)}</option>`).join('')
+              : '<option value="">Sem horários cadastrados</option>'}
+          </select>
+        </label>
+      </header>
+
+      <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
+        Cada horário cadastrado na semana selecionada conta como uma aula. As horas-atividade seguem os valores do PDF para cargas de 1 a 30 aulas; acima disso, a tabela não informa um cálculo.
+      </div>
+
+      <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[680px] text-left text-sm">
+            <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th class="px-5 py-4">Professor</th>
+                <th class="px-5 py-4 text-center">Aulas de regência / semana</th>
+                <th class="px-5 py-4 text-center">Horas-atividade / semana</th>
+                <th class="px-5 py-4 text-center">Jornada / semana</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              ${rows.length ? rows.map(({ teacher, lessonCount, activityHours, totalHours }) => `
+                <tr>
+                  <td class="px-5 py-4 font-bold text-slate-800">${escapeHtml(teacher.displayName || 'Professor sem nome')}</td>
+                  <td class="px-5 py-4 text-center font-semibold text-slate-700">${lessonCount}</td>
+                  <td class="px-5 py-4 text-center font-semibold ${activityHours === null ? 'text-amber-700' : 'text-slate-700'}">${activityHours === null ? 'Fora da tabela' : activityHours}</td>
+                  <td class="px-5 py-4 text-center font-black text-slate-900">${totalHours === null ? '—' : totalHours}</td>
+                </tr>
+              `).join('') : `
+                <tr>
+                  <td colspan="4" class="px-5 py-10 text-center font-medium text-slate-500">Cadastre horários para consultar a carga horária dos professores.</td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  `;
+};
 
 const HorariosTab = () => `
   <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between print:mb-4">
@@ -3221,7 +3314,7 @@ const slidesContent = [
 // --- ACTIONS ---
 const TAB_ACCESS = {
   dev: ['overview', 'dev_health', 'dev_diagnostics', 'dev_system_logs', 'dev_audit', 'dev_data', 'escolas', 'materias', 'usuarios'],
-  diretor: ['horarios', 'labs', 'materias', 'usuarios', 'relatorios'],
+  diretor: ['horarios', 'carga_horaria', 'labs', 'materias', 'usuarios', 'relatorios'],
   teacher: ['dashboard', 'horarios', 'labs', 'materias'],
 };
 
@@ -3246,6 +3339,12 @@ const actions = {
 
   setScheduleListTurno(turno) {
     scheduleListTurno = turno;
+    this.renderCurrentView();
+  },
+
+  setWorkloadWeek(week) {
+    if (!getWeeksList().includes(week)) return;
+    workloadWeek = week;
     this.renderCurrentView();
   },
 
