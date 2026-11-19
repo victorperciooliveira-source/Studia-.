@@ -91,7 +91,8 @@ let periodAdminTurno = 'manha';
 let subjectSchoolId = '';
 let devDiagnostics = null;
 let devAuditLogs = [];
-let devErrorLogs = [];
+let devSystemLogs = { items: [], total: 0, page: 0, pageSize: 50 };
+let devSystemLogFilters = { search: '', category: '', level: '', from: '', to: '' };
 let devPanelErrors = {};
 let stats = { total: 0, confirmed: 0, absent: 0, pending: 0 };
 let currentTab = 'dashboard';
@@ -1851,32 +1852,92 @@ const DeveloperDiagnosticsTab = () => `
   </div>
 `;
 
-const DeveloperLogsTab = () => `
+const DeveloperSystemLogsTab = () => {
+  const categoryLabels = {
+    auth: 'Autenticação',
+    api: 'API',
+    action: 'Ação',
+    error: 'Erro',
+    frontend: 'Frontend',
+    system: 'Sistema'
+  };
+  const levelLabels = { info: 'Info', warn: 'Aviso', error: 'Erro' };
+  const firstItem = devSystemLogs.page * devSystemLogs.pageSize + 1;
+  const lastItem = Math.min((devSystemLogs.page + 1) * devSystemLogs.pageSize, devSystemLogs.total);
+  return `
   <div class="space-y-6">
     <header class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h3 class="text-2xl font-black text-slate-900">Logs de erros</h3>
-        <p class="mt-1 text-sm font-medium text-slate-500">Últimos 100 erros HTTP 5xx registrados pela API. O conteúdo dos pedidos não é armazenado.</p>
+        <h3 class="text-2xl font-black text-slate-900">Logs do sistema</h3>
+        <p class="mt-1 text-sm font-medium text-slate-500">Atividade da API e erros do navegador. Dados sensíveis e conteúdo das requisições não são exibidos.</p>
       </div>
       ${developerRefreshButton()}
     </header>
-    ${developerErrorNotice('logs')}
+    ${developerErrorNotice('systemLogs')}
+    <form class="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 xl:grid-cols-6" onsubmit="actions.searchSystemLogs(event)">
+      <label class="sm:col-span-2 xl:col-span-2">
+        <span class="mb-1 block text-xs font-bold text-slate-500">Buscar rota ou mensagem</span>
+        <input id="dev-system-logs-search" type="search" value="${escapeDeveloperHtml(devSystemLogFilters.search)}" maxlength="100" placeholder="Ex.: /api/schedules" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+      </label>
+      <label>
+        <span class="mb-1 block text-xs font-bold text-slate-500">Categoria</span>
+        <select onchange="actions.setSystemLogFilter('category', this.value)" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+          <option value="">Todas</option>
+          ${Object.entries(categoryLabels).map(([value, label]) => `<option value="${value}" ${devSystemLogFilters.category === value ? 'selected' : ''}>${label}</option>`).join('')}
+        </select>
+      </label>
+      <label>
+        <span class="mb-1 block text-xs font-bold text-slate-500">Nível</span>
+        <select onchange="actions.setSystemLogFilter('level', this.value)" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+          <option value="">Todos</option>
+          ${Object.entries(levelLabels).map(([value, label]) => `<option value="${value}" ${devSystemLogFilters.level === value ? 'selected' : ''}>${label}</option>`).join('')}
+        </select>
+      </label>
+      <label>
+        <span class="mb-1 block text-xs font-bold text-slate-500">De</span>
+        <input type="date" value="${escapeDeveloperHtml(devSystemLogFilters.from)}" onchange="actions.setSystemLogFilter('from', this.value)" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+      </label>
+      <label>
+        <span class="mb-1 block text-xs font-bold text-slate-500">Até</span>
+        <input type="date" value="${escapeDeveloperHtml(devSystemLogFilters.to)}" onchange="actions.setSystemLogFilter('to', this.value)" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+      </label>
+      <div class="flex items-end gap-2 sm:col-span-2 xl:col-span-6">
+        <button type="submit" class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Buscar</button>
+        <button type="button" onclick="actions.clearSystemLogFilters()" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">Limpar filtros</button>
+      </div>
+    </form>
     <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      ${devErrorLogs.length ? `
+      ${devSystemLogs.items.length ? `
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[620px] text-left text-sm">
-            <thead class="bg-slate-50 text-xs uppercase text-slate-400"><tr><th class="px-5 py-3">Data</th><th class="px-5 py-3">Método</th><th class="px-5 py-3">Rota</th><th class="px-5 py-3">Código</th></tr></thead>
+          <table class="w-full min-w-[980px] text-left text-sm">
+            <thead class="bg-slate-50 text-xs uppercase text-slate-400"><tr><th class="px-5 py-3">Data</th><th class="px-5 py-3">Nível</th><th class="px-5 py-3">Categoria</th><th class="px-5 py-3">Ator</th><th class="px-5 py-3">Requisição</th><th class="px-5 py-3">Resultado</th><th class="px-5 py-3">Mensagem</th></tr></thead>
             <tbody class="divide-y divide-slate-100">
-              ${devErrorLogs.map(log => `
-                <tr><td class="px-5 py-3 text-slate-600">${new Date(log.created_at).toLocaleString('pt-BR')}</td><td class="px-5 py-3 font-bold text-slate-700">${escapeDeveloperHtml(log.method)}</td><td class="px-5 py-3 font-mono text-xs text-slate-600">${escapeDeveloperHtml(log.route)}</td><td class="px-5 py-3 font-black text-rose-700">${escapeDeveloperHtml(log.status_code)}</td></tr>
+              ${devSystemLogs.items.map(log => `
+                <tr>
+                  <td class="whitespace-nowrap px-5 py-3 text-slate-600">${new Date(log.created_at).toLocaleString('pt-BR')}</td>
+                  <td class="px-5 py-3 font-bold ${log.level === 'error' ? 'text-rose-700' : log.level === 'warn' ? 'text-amber-700' : 'text-slate-700'}">${escapeDeveloperHtml(levelLabels[log.level] || log.level)}</td>
+                  <td class="px-5 py-3 text-slate-600">${escapeDeveloperHtml(categoryLabels[log.category] || log.category)}</td>
+                  <td class="px-5 py-3 font-mono text-xs text-slate-600">${log.actor_uid ? `${escapeDeveloperHtml(log.actor_uid)} (${escapeDeveloperHtml(log.actor_role)})` : 'Visitante'}</td>
+                  <td class="px-5 py-3 font-mono text-xs text-slate-600">${escapeDeveloperHtml(log.method || '—')} ${escapeDeveloperHtml(log.route || '—')}</td>
+                  <td class="px-5 py-3 text-slate-600">${escapeDeveloperHtml(log.status_code ?? '—')}${log.duration_ms !== null ? `<span class="ml-1 text-xs text-slate-400">${escapeDeveloperHtml(log.duration_ms)} ms</span>` : ''}</td>
+                  <td class="px-5 py-3 text-slate-600">${escapeDeveloperHtml(log.message || log.metadata?.eventType || '—')}</td>
+                </tr>
               `).join('')}
             </tbody>
           </table>
         </div>
-      ` : '<p class="p-5 text-sm font-medium text-slate-500">Nenhum erro registrado ou ainda não há logs disponíveis.</p>'}
+      ` : '<p class="p-5 text-sm font-medium text-slate-500">Nenhum evento corresponde aos filtros selecionados.</p>'}
+      <footer class="flex flex-col gap-3 border-t border-slate-100 px-5 py-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+        <span>${devSystemLogs.total ? `Exibindo ${firstItem}–${lastItem} de ${devSystemLogs.total}` : '0 eventos'}</span>
+        <div class="flex gap-2">
+          <button type="button" onclick="actions.changeSystemLogPage(-1)" ${devSystemLogs.page <= 0 ? 'disabled' : ''} class="rounded-lg border border-slate-200 px-3 py-1.5 font-bold enabled:hover:bg-slate-50 disabled:opacity-40">Anterior</button>
+          <button type="button" onclick="actions.changeSystemLogPage(1)" ${lastItem >= devSystemLogs.total ? 'disabled' : ''} class="rounded-lg border border-slate-200 px-3 py-1.5 font-bold enabled:hover:bg-slate-50 disabled:opacity-40">Próxima</button>
+        </div>
+      </footer>
     </section>
   </div>
 `;
+};
 
 const DeveloperAuditTab = () => `
   <div class="space-y-6">
@@ -2050,7 +2111,7 @@ const DEVELOPER_NAV_ITEMS = [
   { id: 'overview', icon: 'activity', label: 'Visão geral' },
   { id: 'dev_health', icon: 'activity', label: 'Saúde do sistema' },
   { id: 'dev_diagnostics', icon: 'search', label: 'Diagnóstico' },
-  { id: 'dev_logs', icon: 'file-text', label: 'Logs de erros' },
+  { id: 'dev_system_logs', icon: 'activity', label: 'Logs do sistema' },
   { id: 'dev_audit', icon: 'clipboard', label: 'Auditoria' },
   { id: 'dev_data', icon: 'database', label: 'Dados e backups' },
   { id: 'escolas', icon: 'building', label: 'Escolas' },
@@ -2091,7 +2152,7 @@ const DeveloperView = () => `
         ${currentTab === 'overview' ? DeveloperOverviewTab() : ''}
         ${currentTab === 'dev_health' ? DeveloperHealthTab() : ''}
         ${currentTab === 'dev_diagnostics' ? DeveloperDiagnosticsTab() : ''}
-        ${currentTab === 'dev_logs' ? DeveloperLogsTab() : ''}
+        ${currentTab === 'dev_system_logs' ? DeveloperSystemLogsTab() : ''}
         ${currentTab === 'dev_audit' ? DeveloperAuditTab() : ''}
         ${currentTab === 'dev_data' ? DeveloperDataTab() : ''}
         ${currentTab === 'escolas' ? EscolasTab() : ''}
@@ -3159,7 +3220,7 @@ const slidesContent = [
 
 // --- ACTIONS ---
 const TAB_ACCESS = {
-  dev: ['overview', 'dev_health', 'dev_diagnostics', 'dev_logs', 'dev_audit', 'dev_data', 'escolas', 'materias', 'usuarios'],
+  dev: ['overview', 'dev_health', 'dev_diagnostics', 'dev_system_logs', 'dev_audit', 'dev_data', 'escolas', 'materias', 'usuarios'],
   diretor: ['horarios', 'labs', 'materias', 'usuarios', 'relatorios'],
   teacher: ['dashboard', 'horarios', 'labs', 'materias'],
 };
@@ -3557,17 +3618,57 @@ const actions = {
       if (['overview', 'dev_health', 'dev_diagnostics', 'dev_data'].includes(tab)) {
         devDiagnostics = await api.get('/api/dev/diagnostics');
         delete devPanelErrors.diagnostics;
-      } else if (tab === 'dev_logs') {
-        devErrorLogs = await api.get('/api/dev/logs');
-        delete devPanelErrors.logs;
+      } else if (tab === 'dev_system_logs') {
+        const params = new URLSearchParams({
+          page: String(devSystemLogs.page),
+          pageSize: String(devSystemLogs.pageSize),
+          ...Object.fromEntries(Object.entries(devSystemLogFilters).filter(([, value]) => value))
+        });
+        devSystemLogs = await api.get(`/api/dev/system-logs?${params}`);
+        delete devPanelErrors.systemLogs;
       } else if (tab === 'dev_audit') {
         devAuditLogs = await api.get('/api/dev/audit');
         delete devPanelErrors.audit;
       }
     } catch (err) {
-      const errorKey = ['overview', 'dev_health', 'dev_diagnostics', 'dev_data'].includes(tab) ? 'diagnostics' : tab === 'dev_logs' ? 'logs' : 'audit';
+      const errorKey = ['overview', 'dev_health', 'dev_diagnostics', 'dev_data'].includes(tab)
+        ? 'diagnostics'
+        : tab === 'dev_system_logs' ? 'systemLogs' : 'audit';
       devPanelErrors[errorKey] = err.message || 'Não foi possível carregar os dados desta aba.';
     }
+  },
+
+  async setSystemLogFilter(filter, value) {
+    if (user?.role !== 'dev' || !Object.prototype.hasOwnProperty.call(devSystemLogFilters, filter)) return;
+    devSystemLogFilters[filter] = value;
+    devSystemLogs.page = 0;
+    await this.loadDeveloperPanel('dev_system_logs');
+    this.renderCurrentView();
+  },
+
+  async searchSystemLogs(event) {
+    event.preventDefault();
+    if (user?.role !== 'dev') return;
+    devSystemLogFilters.search = $('#dev-system-logs-search')?.value?.trim() || '';
+    devSystemLogs.page = 0;
+    await this.loadDeveloperPanel('dev_system_logs');
+    this.renderCurrentView();
+  },
+
+  async clearSystemLogFilters() {
+    if (user?.role !== 'dev') return;
+    devSystemLogFilters = { search: '', category: '', level: '', from: '', to: '' };
+    devSystemLogs.page = 0;
+    await this.loadDeveloperPanel('dev_system_logs');
+    this.renderCurrentView();
+  },
+
+  async changeSystemLogPage(delta) {
+    if (user?.role !== 'dev') return;
+    const lastPage = Math.max(Math.ceil(devSystemLogs.total / devSystemLogs.pageSize) - 1, 0);
+    devSystemLogs.page = Math.min(Math.max(devSystemLogs.page + delta, 0), lastPage);
+    await this.loadDeveloperPanel('dev_system_logs');
+    this.renderCurrentView();
   },
 
   async refreshDeveloperPanel() {
@@ -4882,6 +4983,15 @@ function enableOklchPolyfill() {
     }
   };
 }
+
+const reportFrontendError = eventType => {
+  api.post('/api/client-errors', { eventType }).catch(error => {
+    console.error('Could not report frontend error:', error);
+  });
+};
+
+window.addEventListener('error', () => reportFrontendError('error'));
+window.addEventListener('unhandledrejection', () => reportFrontendError('unhandledrejection'));
 
 window.actions = actions;
 

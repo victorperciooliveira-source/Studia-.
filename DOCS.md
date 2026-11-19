@@ -30,7 +30,7 @@ Hierarquia (topo → base): `dev` (administrador global) → `diretor` (direçã
 > Os perfis válidos no código atual são `dev`, `diretor` e `teacher`; não existe perfil `admin`.
 
 ### Desenvolvedor (`DeveloperView`) — console técnico
-Sidebar escura com as abas **Visão geral**, **Saúde do sistema**, **Diagnóstico**, **Logs de erros**, **Auditoria**, **Dados e backups**, **Escolas**, **Matérias** e **Usuários**. A edição de horários permanece disponível na aba **Horários** da direção, não no console do desenvolvedor.
+Sidebar escura com as abas **Visão geral**, **Saúde do sistema**, **Diagnóstico**, **Logs do sistema**, **Auditoria**, **Dados e backups**, **Escolas**, **Matérias** e **Usuários**. Logs do sistema consolidam atividade da API e erros JavaScript não tratados; a consulta é pesquisável e filtrável e fica restrita ao perfil `dev`. A edição de horários permanece disponível na aba **Horários** da direção, não no console do desenvolvedor.
 
 ### Diretor (`DiretorView`) — direção de escola
 Sidebar clara, 5 abas:
@@ -61,6 +61,8 @@ Rotas privadas validam o bearer token do Supabase Auth e o perfil no servidor po
 | `GET /api/schools/public` | Lista somente `id` e `name` das escolas ativas para o login, sem autenticação nem cache e com limite de requisições por IP. `/api/public/schools` permanece como alias compatível. |
 | `POST /api/auth/register` | Cadastro público desativado; responde `403`. |
 | `POST /api/auth/login` | Autentica com `supabaseAuth.auth.signInWithPassword`, exige uma escola ativa e confere o vínculo de professores/diretores; contas vinculadas a escolas inativas recebem `Credenciais inválidas`. |
+| `GET /api/dev/system-logs` | Restrita a `dev`; lista logs paginados e filtrados por texto, categoria, nível e período. |
+| `POST /api/client-errors` | Endpoint público limitado por IP; registra somente o tipo de erro JavaScript enviado, nunca a mensagem ou o stack trace. |
 | `GET /api/schedules` | Lista horários, ordenado por `date` desc e `startTime` asc. Filtra por `?teacherId=`. |
 | `POST /api/schedules` | Cria horário com `status: 'pending'`. |
 | `POST /api/schedules/recurring` | Gera de uma vez as ocorrências para os dias, períodos e datas selecionados, rejeitando o lote inteiro em caso de conflito. |
@@ -92,7 +94,7 @@ O fluxo e as rotas de atestados foram removidos. A tabela `certificates` permane
 3. **Persistência de sessão**: ao carregar a página, `app.js` lê `localStorage.getItem('user')` direto para a variável `user` — não há verificação de validade/expiração; a "sessão" nunca expira sozinha.
 4. **Logout**: `actions.logout()` só limpa `localStorage.user` e zera o estado local; não há chamada ao backend nem revogação de nada no Supabase Auth.
 5. **Cargos**: contas `teacher`, `diretor` e `dev` são criadas/gerenciadas pela direção ou pelo desenvolvedor. Diretores não podem editar contas `dev`, mudar escola ou promover usuários a `dev`; ninguém pode alterar o próprio perfil.
-6. **Migrações**: aplique `migrations/011_school_active_flag.sql` para ativar a escola Júlio Szymanski, desativar as demais e vincular professores/diretores sem escola ativa. Aplique também `migrations/012_user_profile_audit.sql` para adicionar ao log de auditoria o UID alvo e os valores alterados.
+6. **Migrações**: aplique `migrations/011_school_active_flag.sql` para ativar a escola Júlio Szymanski, desativar as demais e vincular professores/diretores sem escola ativa. Aplique também `migrations/012_user_profile_audit.sql` para adicionar ao log de auditoria o UID alvo e os valores alterados, e `migrations/011_system_logs.sql` para criar os logs do sistema e importar os registros legados de `dev_error_logs`. Há dois arquivos com o prefixo `011`; aplique cada arquivo explicitamente, sem inferir a ordem apenas pelo número.
 
 ## 5. Registros históricos de certificados
 
@@ -122,6 +124,7 @@ Lidas em `server.ts`; o processo lança erro na inicialização se alguma estive
 | `SUPABASE_SERVICE_ROLE_KEY` | Chave privilegiada usada pelo client `supabase` (quase todas as rotas, incluindo operações administrativas de Auth como criar/excluir usuário). Nunca deve ir para o frontend. |
 | `SUPABASE_ANON_KEY` | Chave pública usada só pelo client `supabaseAuth`, exclusivamente para `signInWithPassword` no login. |
 | `PORT` | Porta do Express (padrão 3000 se ausente). |
+| `LOG_IP_SALT` | Salt secreto usado para gerar hashes SHA-256 dos IPs nos logs; obrigatório no servidor e nunca enviado ao navegador. |
 
 Adicionalmente, `vite.config.ts` injeta `process.env.GEMINI_API_KEY` como `define` global, mas essa variável **não é lida em nenhum lugar de `src/app.js`** — é resquício de um scaffold (o pacote `@google/genai` está no `package.json` mas não é importado por nada) e não precisa ser configurada para o app funcionar.
 

@@ -16,7 +16,7 @@ Studia is a Portuguese-language school scheduling system ("Sistema completo de g
 
 There is no test suite/framework in this repo.
 
-Requires a `.env` at the repo root with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `PORT` — the server throws on startup if any are missing (`server.ts`).
+Requires a `.env` at the repo root with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, and `LOG_IP_SALT`; the server throws on startup if any are missing (`server.ts`). `PORT` is optional and defaults to 3000.
 
 ## Architecture
 
@@ -34,4 +34,4 @@ To add or change UI behavior: find the relevant `*View()` function, edit its tem
 
 **Backend** (`server.ts`, Express): a thin REST proxy in front of Supabase. Two Supabase clients are created — one with the service role key (`supabase`, used for all privileged DB/auth-admin operations) and one with the anon key (`supabaseAuth`, used only for `auth.signInWithPassword` at login) — the service role key must never reach the browser, which is why this proxy exists. Routes cover auth (`/api/auth/register`, `/login`), schedules CRUD, lab bookings, certificates (including an approve endpoint that also flips the related schedule's status to `'vaga'`), stats, and user/teacher management. In dev, Vite runs as Express middleware (`middlewareMode: true`, `appType: 'spa'`); in production it serves `dist/` as static files with an SPA fallback (`NODE_ENV=production` gates this).
 
-**Data layer**: Supabase/Postgres tables used directly by table name in `server.ts` — `users`, `schedules`, `lab_bookings`, `certificates`. No ORM/migration files live in this repo; schema changes happen in Supabase directly.
+**Data layer**: Supabase/Postgres tables used directly by table name in `server.ts` — `users`, `schedules`, `lab_bookings`, `certificates`, and developer-only `system_logs`. The API logger records request metadata without bodies, cookies, or plain IP addresses; set `LOG_IP_SALT` in the server environment. SQL migrations live in `migrations/`.

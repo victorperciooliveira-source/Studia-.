@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { createClient } from '@supabase/supabase-js';
+import { createHash } from 'crypto';
 import path from 'path';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -26,6 +27,66 @@ const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const logIpSalt = process.env.LOG_IP_SALT;
+if (!logIpSalt) {
+  throw new Error('Configure LOG_IP_SALT no ambiente do servidor para habilitar o registro seguro de logs.');
+}
+
+type SystemLogLevel = 'info' | 'warn' | 'error';
+type SystemLogCategory = 'auth' | 'api' | 'action' | 'error' | 'frontend' | 'system';
+type SystemLogActor = { uid: string; role: string; school_id?: string | null } | null;
+
+const logEvent = async ({
+  level,
+  category,
+  method,
+  route,
+  statusCode,
+  durationMs,
+  actor,
+  schoolId,
+  req,
+  message,
+  metadata
+}: {
+  level: SystemLogLevel;
+  category: SystemLogCategory;
+  method?: string | null;
+  route?: string | null;
+  statusCode?: number | null;
+  durationMs?: number | null;
+  actor?: SystemLogActor;
+  schoolId?: string | null;
+  req?: any;
+  message?: string | null;
+  metadata?: { eventType?: 'error' | 'unhandledrejection' } | null;
+}): Promise<void> => {
+  try {
+    const ip = req?.ip || req?.socket?.remoteAddress;
+    const ipHash = ip
+      ? createHash('sha256').update(`${logIpSalt}:${ip}`).digest('hex')
+      : null;
+    const safeMetadata = metadata?.eventType ? { eventType: metadata.eventType } : null;
+    const { error } = await supabase.from('system_logs').insert({
+      level,
+      category,
+      method: method?.slice(0, 16) || null,
+      route: route?.slice(0, 255) || null,
+      status_code: statusCode ?? null,
+      duration_ms: durationMs ?? null,
+      actor_uid: actor?.uid || null,
+      actor_role: actor?.role || null,
+      school_id: schoolId || actor?.school_id || null,
+      ip_hash: ipHash,
+      user_agent: String(req?.get?.('user-agent') || '').slice(0, 255) || null,
+      message: message?.slice(0, 1000) || null,
+      metadata: safeMetadata
+    });
+    if (error) console.error('[SYSTEM_LOG] Could not store event:', error);
+  } catch (error) {
+    console.error('[SYSTEM_LOG] Could not store event:', error);
+  }
+};
 
 // Mapeamento de colunas do banco para camelCase
 const columnMap: {[key: string]: string} = {
@@ -196,48 +257,67 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb' }));
 
 app.use('/api', (req, res, next) => {
+  const startedAt = Date.now();
   res.once('finish', () => {
     const route = `${req.baseUrl}${req.route?.path || req.path}`.slice(0, 255);
     const method = req.method;
-
-    if (res.statusCode >= 500) {
-      void supabase.from('dev_error_logs').insert({
-        method,
-        route,
-        status_code: res.statusCode
-      }).then(({ error }) => {
-        if (error) console.error('[DEV_LOG] Could not store API error:', error);
-      }, error => console.error('[DEV_LOG] Could not store API error:', error));
-    }
-
-    const isDataExport = method === 'GET' && req.path.startsWith('/api/dev/export/');
-    if ((!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !isDataExport) || res.statusCode < 200 || res.statusCode >= 300) return;
-    const authorization = req.headers.authorization as string | undefined;
-    const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
-    if (!accessToken) return;
+    const statusCode = res.statusCode;
+    const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+    const isAuthRoute = route.startsWith('/api/auth/');
+    const category = res.locals.systemLogCategory
+      || (isAuthRoute ? 'auth' : isWrite && statusCode < 400 ? 'action' : statusCode >= 500 ? 'error' : 'api');
+    const level = res.locals.systemLogLevel
+      || (statusCode >= 500 ? 'error' : statusCode >= 400 ? 'warn' : 'info');
 
     void (async () => {
-      const { data: authData, error: authError } = await supabaseAuth.auth.getUser(accessToken);
-      if (authError || !authData.user) return;
+      let actor: SystemLogActor = res.locals.systemLogActor || null;
+      if (!actor) {
+        const authorization = req.headers.authorization as string | undefined;
+        const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
+        if (accessToken) {
+          const { data: authData, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+          if (!authError && authData.user) actor = await getUserFromDB(authData.user.id);
+        }
+      }
 
-      const actor = await getUserFromDB(authData.user.id);
-      if (!actor) return;
-
-      const { error } = await supabase.from('dev_audit_logs').insert({
-        actor_uid: actor.uid,
-        actor_role: actor.role,
+      await logEvent({
+        level,
+        category,
         method,
         route,
-        status_code: res.statusCode
+        statusCode,
+        durationMs: Date.now() - startedAt,
+        actor,
+        req,
+        message: res.locals.systemLogMessage || (statusCode >= 500 ? 'Falha na requisição da API' : 'Requisição concluída'),
+        metadata: res.locals.systemLogMetadata || null
       });
-      if (error) console.error('[DEV_AUDIT] Could not store API activity:', error);
-    })().catch(error => console.error('[DEV_AUDIT] Could not store API activity:', error));
+    })().catch(error => console.error('[SYSTEM_LOG] Could not resolve event actor:', error));
   });
   next();
 });
 
 app.post('/api/auth/register', (_req, res) => {
   res.status(403).json({ error: 'Cadastro público desativado. Peça à direção pedagógica para criar seu acesso.' });
+});
+
+app.post('/api/client-errors', (req, res) => {
+  const ip = req.ip || 'unknown';
+  if (!checkRateLimit(`client-errors:${ip}`, 10, 60000)) {
+    return res.status(429).json({ error: 'Muitos eventos enviados. Tente novamente mais tarde.' });
+  }
+  const eventType = req.body?.eventType;
+  if (eventType !== 'error' && eventType !== 'unhandledrejection') {
+    return res.status(400).json({ error: 'Tipo de evento inválido.' });
+  }
+
+  res.locals.systemLogCategory = 'frontend';
+  res.locals.systemLogLevel = 'error';
+  res.locals.systemLogMessage = eventType === 'error'
+    ? 'Erro JavaScript não tratado'
+    : 'Rejeição de promise não tratada';
+  res.locals.systemLogMetadata = { eventType };
+  res.status(202).json({ status: 'accepted' });
 });
 
 app.get(['/api/schools/public', '/api/public/schools'], async (req, res) => {
@@ -346,6 +426,11 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   console.log('[LOGIN] User found, role:', userData.role);
+  res.locals.systemLogActor = {
+    uid: userData.uid,
+    role: userData.role,
+    school_id: userData.school_id || null
+  };
   res.json({
     ...transformKeys(userData),
     accessToken: authData.session.access_token,
@@ -1396,17 +1481,38 @@ app.get('/api/dev/diagnostics', async (req, res) => {
   });
 });
 
-app.get('/api/dev/logs', async (req, res) => {
+app.get('/api/dev/system-logs', async (req, res) => {
   const userInfo = await requireRole(req, res, ['dev']);
   if (!userInfo) return;
 
-  const { data, error } = await supabase
-    .from('dev_error_logs')
-    .select('id,created_at,method,route,status_code')
+  const categories: SystemLogCategory[] = ['auth', 'api', 'action', 'error', 'frontend', 'system'];
+  const levels: SystemLogLevel[] = ['info', 'warn', 'error'];
+  const category = String(req.query.category || '');
+  const level = String(req.query.level || '');
+  const from = String(req.query.from || '');
+  const to = String(req.query.to || '');
+  const search = String(req.query.search || '').trim().slice(0, 100).replace(/[,%()\\*]/g, '');
+  const pageSize = Math.min(Math.max(Number(req.query.pageSize) || 50, 1), 100);
+  const page = Math.min(Math.max(Number(req.query.page) || 0, 0), 10000);
+
+  let query = supabase
+    .from('system_logs')
+    .select('id,created_at,level,category,method,route,status_code,duration_ms,actor_uid,actor_role,school_id,message,metadata', { count: 'exact' });
+  if (categories.includes(category as SystemLogCategory)) query = query.eq('category', category);
+  if (levels.includes(level as SystemLogLevel)) query = query.eq('level', level);
+  if (isValidDateOnly(from)) query = query.gte('created_at', `${from}T00:00:00.000Z`);
+  if (isValidDateOnly(to)) {
+    const toExclusive = new Date(`${to}T00:00:00.000Z`);
+    toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
+    query = query.lt('created_at', toExclusive.toISOString());
+  }
+  if (search) query = query.or(`route.ilike.%${search}%,message.ilike.%${search}%`);
+
+  const { data, error, count } = await query
     .order('created_at', { ascending: false })
-    .limit(100);
+    .range(page * pageSize, page * pageSize + pageSize - 1);
   if (error) return res.status(500).json({ error: 'Não foi possível carregar os logs do sistema.' });
-  res.json(data || []);
+  res.json({ items: data || [], total: count || 0, page, pageSize });
 });
 
 app.get('/api/dev/audit', async (req, res) => {
@@ -1881,7 +1987,10 @@ async function startServer() {
     app.use(express.static(distPath));
     app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
-  app.listen(PORT, '0.0.0.0', () => console.log(`Server running at http://localhost:${PORT}`));
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running at http://localhost:${PORT}`);
+    void logEvent({ level: 'info', category: 'system', message: 'Servidor iniciado' });
+  });
 }
 
 startServer();
