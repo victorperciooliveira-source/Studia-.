@@ -95,6 +95,8 @@ const columnMap: {[key: string]: string} = {
   period_number: 'periodNumber',
   start_time: 'startTime',
   end_time: 'endTime',
+  teacher_uid: 'teacherUid',
+  updated_at: 'updatedAt',
   teacherid: 'teacherId',
   teachername: 'teacherName',
   classgroup: 'classGroup',
@@ -1175,6 +1177,99 @@ const getSchoolIdForPeriods = (req: any, res: any, userInfo: UserInfo): string |
   }
   return schoolId;
 };
+
+app.get('/api/teacher-availability', async (req, res) => {
+  const userInfo = await requireRole(req, res, ['dev', 'diretor', 'teacher']);
+  if (!userInfo) return;
+
+  const teacherId = typeof req.query.teacherId === 'string' ? sanitizeString(req.query.teacherId) : '';
+  if (!teacherId) return res.status(400).json({ error: 'Informe um professor válido.' });
+  if (userInfo.role === 'teacher' && teacherId !== userInfo.uid) {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+
+  const { data: teacher, error: teacherError } = await supabase
+    .from('users')
+    .select('uid,role,school_id')
+    .eq('uid', teacherId)
+    .maybeSingle();
+  if (teacherError) {
+    console.error('[TEACHER_AVAILABILITY] Teacher lookup failed:', teacherError);
+    return res.status(500).json({ error: 'Erro ao verificar o professor. Confira se a migração 013 foi aplicada no Supabase.' });
+  }
+  if (!teacher || teacher.role !== 'teacher') {
+    return res.status(404).json({ error: 'Professor não encontrado.' });
+  }
+  if (userInfo.role === 'diretor' && teacher.school_id !== userInfo.school_id) {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+  if (!teacher.school_id) {
+    return res.status(400).json({ error: 'Associe o professor a uma escola antes de consultar a disponibilidade.' });
+  }
+
+  const { data, error } = await supabase
+    .from('teacher_weekday_availability')
+    .select('id,school_id,teacher_uid,weekday,available,updated_at')
+    .eq('school_id', teacher.school_id)
+    .eq('teacher_uid', teacher.uid)
+    .order('weekday', { ascending: true });
+  if (error) {
+    console.error('[TEACHER_AVAILABILITY] Availability lookup failed:', error);
+    return res.status(500).json({ error: 'Erro ao buscar disponibilidade. Confira se a migração 013 foi aplicada no Supabase.' });
+  }
+  res.json(transformKeys(data));
+});
+
+app.put('/api/teacher-availability', async (req, res) => {
+  const userInfo = await requireRole(req, res, ['dev', 'diretor']);
+  if (!userInfo) return;
+
+  const teacherId = typeof req.body?.teacherId === 'string' ? sanitizeString(req.body.teacherId) : '';
+  const weekday = req.body?.weekday;
+  const available = req.body?.available;
+  if (!teacherId || !Number.isInteger(weekday) || weekday < 1 || weekday > 5 || typeof available !== 'boolean') {
+    return res.status(400).json({ error: 'Informe professor, dia útil (1 a 5) e disponibilidade válida.' });
+  }
+
+  const { data: teacher, error: teacherError } = await supabase
+    .from('users')
+    .select('uid,role,school_id')
+    .eq('uid', teacherId)
+    .maybeSingle();
+  if (teacherError) {
+    console.error('[TEACHER_AVAILABILITY] Teacher lookup failed:', teacherError);
+    return res.status(500).json({ error: 'Erro ao verificar o professor. Confira se a migração 013 foi aplicada no Supabase.' });
+  }
+  if (!teacher || teacher.role !== 'teacher') {
+    return res.status(404).json({ error: 'Professor não encontrado.' });
+  }
+  if (userInfo.role === 'diretor' && teacher.school_id !== userInfo.school_id) {
+    return res.status(403).json({ error: 'A disponibilidade só pode ser alterada para professores da sua escola.' });
+  }
+  if (!teacher.school_id) {
+    return res.status(400).json({ error: 'Associe o professor a uma escola antes de alterar a disponibilidade.' });
+  }
+
+  const { data, error } = await supabase
+    .from('teacher_weekday_availability')
+    .upsert(
+      {
+        school_id: teacher.school_id,
+        teacher_uid: teacher.uid,
+        weekday,
+        available,
+        updated_at: new Date().toISOString()
+      },
+      { onConflict: 'school_id,teacher_uid,weekday' }
+    )
+    .select('id,school_id,teacher_uid,weekday,available,updated_at')
+    .single();
+  if (error) {
+    console.error('[TEACHER_AVAILABILITY] Availability save failed:', error);
+    return res.status(500).json({ error: 'Erro ao salvar disponibilidade. Confira se a migração 013 foi aplicada no Supabase.' });
+  }
+  res.json(transformKeys(data));
+});
 
 app.get('/api/school-periods', async (req, res) => {
   const userInfo = await requireRole(req, res, ['dev', 'diretor', 'teacher']);

@@ -96,6 +96,9 @@ let devSystemLogFilters = { search: '', category: '', level: '', from: '', to: '
 let devPanelErrors = {};
 let stats = { total: 0, confirmed: 0, absent: 0, pending: 0 };
 let currentTab = 'dashboard';
+let teacherAvailability = [];
+let teacherAvailabilityTeacherId = '';
+let teacherAvailabilityError = '';
 let authMode = 'closed'; // 'login' or 'closed'
 let loginSchools = [];
 let loginSchoolsState = 'idle';
@@ -259,6 +262,9 @@ const api = {
   async post(url, data) {
     return this.request(url, { method: 'POST', body: JSON.stringify(data) });
   },
+  async put(url, data) {
+    return this.request(url, { method: 'PUT', body: JSON.stringify(data) });
+  },
   async get(url) {
     return this.request(url, { method: 'GET' });
   },
@@ -337,6 +343,110 @@ const filterSchedulesByTurno = (scheduleList, turno) =>
   turno === 'todos' ? scheduleList : scheduleList.filter(schedule => getScheduleTurno(schedule) === turno);
 
 const TURNO_LABELS = { manha: 'Manhã', tarde: 'Tarde', noite: 'Noite' };
+const HORA_ATIVIDADE_TABELA = {
+  1: 0, 2: 0, 3: 1, 4: 1, 5: 2, 6: 2, 7: 2, 8: 2, 9: 3, 10: 3,
+  11: 4, 12: 4, 13: 4, 14: 4, 15: 5, 16: 5, 17: 5, 18: 6, 19: 6, 20: 6,
+  21: 7, 22: 7, 23: 7, 24: 8, 25: 8, 26: 8, 27: 9, 28: 9, 29: 10, 30: 10
+};
+const HORA_ATIVIDADE_TABELA_VALIDADA = false;
+
+const isHourActivitySchedule = schedule =>
+  schedule?.status === 'hora-atividade' ||
+  String(schedule?.subject || '').trim().toLocaleUpperCase('pt-BR') === 'HAF' ||
+  String(schedule?.subject || '').trim().toLocaleLowerCase('pt-BR') === 'hora-atividade';
+
+const getScheduleLessonTime = schedule => {
+  const periodNumber = schedule.periodNumber || schedule.period_number;
+  const period = schoolPeriods.find(item =>
+    item.school_id === (schedule.school_id || user?.school_id) &&
+    item.turno === getScheduleTurno(schedule) &&
+    (periodNumber
+      ? Number(item.periodNumber) === Number(periodNumber)
+      : String(item.startTime || '').slice(0, 5) === String(schedule.startTime || '').slice(0, 5))
+  );
+  return {
+    start: String(schedule.startTime || period?.startTime || '').slice(0, 5),
+    end: String(schedule.endTime || period?.endTime || '').slice(0, 5)
+  };
+};
+
+const getTimeMinutes = time => {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(time || '').slice(0, 5));
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+};
+
+const getTeacherHourActivityPlan = teacherSchedules => {
+  const weeks = new Map();
+  teacherSchedules.filter(schedule => /^\d{4}-\d{2}-\d{2}$/.test(schedule.date || '')).forEach(schedule => {
+    const monday = getMondayDateStr(schedule.date);
+    if (!weeks.has(monday)) weeks.set(monday, []);
+    weeks.get(monday).push(schedule);
+  });
+
+  return [...weeks.entries()].map(([monday, weekSchedules]) => {
+    const lessons = weekSchedules.filter(schedule => !isHourActivitySchedule(schedule));
+    const quota = HORA_ATIVIDADE_TABELA_VALIDADA && lessons.length
+      ? HORA_ATIVIDADE_TABELA[Math.min(lessons.length, 30)] || 0
+      : 0;
+    const dates = getDateRangeForWeek(monday).slice(0, 5);
+    const candidates = [];
+
+    dates.forEach(date => {
+      const dayLessons = lessons.filter(schedule => schedule.date === date);
+      if (dayLessons.length === 0) return;
+      const lessonTimes = dayLessons.map(getScheduleLessonTime)
+        .map(time => ({ start: getTimeMinutes(time.start), end: getTimeMinutes(time.end) }))
+        .filter(time => time.start !== null && time.end !== null && time.end > time.start);
+      if (lessonTimes.length === 0) return;
+      const firstStart = Math.min(...lessonTimes.map(time => time.start));
+      const lastEnd = Math.max(...lessonTimes.map(time => time.end));
+
+      schoolPeriods
+        .filter(period => period.school_id === (dayLessons[0].school_id || user?.school_id))
+        .map(period => ({
+          period,
+          start: String(period.startTime || '').slice(0, 5),
+          end: String(period.endTime || '').slice(0, 5)
+        }))
+        .filter(({ start, end }) => {
+          const startMinutes = getTimeMinutes(start);
+          const endMinutes = getTimeMinutes(end);
+          return startMinutes !== null && endMinutes !== null &&
+            startMinutes >= firstStart && endMinutes <= lastEnd &&
+            !lessonTimes.some(time => startMinutes < time.end && endMinutes > time.start);
+        })
+        .sort((a, b) => a.start.localeCompare(b.start))
+        .forEach(({ period, start, end }) => {
+          if (candidates.some(candidate => candidate.date === date && candidate.startTime === start && candidate.endTime === end)) return;
+          candidates.push({
+            id: `hour-activity-${date}-${start}`,
+            date,
+            startTime: start,
+            endTime: end,
+            subject: 'Hora-atividade',
+            room: '',
+            turno: period.turno,
+            periodNumber: period.periodNumber,
+            teacherId: dayLessons[0].teacherId,
+            teacherName: dayLessons[0].teacherName,
+            school_id: dayLessons[0].school_id || user?.school_id,
+            status: 'hora-atividade'
+          });
+        });
+    });
+
+    const allocated = candidates.slice(0, quota);
+    return {
+      monday,
+      quota,
+      allocated,
+      unallocated: Math.max(quota - allocated.length, 0)
+    };
+  });
+};
+
+const getTeacherHourActivitySchedules = teacherSchedules =>
+  getTeacherHourActivityPlan(teacherSchedules).flatMap(week => week.allocated);
 
 const getDetectedTurmas = (filteredSchedules) => {
   const turmas = new Set();
@@ -434,7 +544,7 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
   slots.forEach(slot => {
     grid[slot] = {};
     days.forEach(day => {
-      grid[slot][day] = '------';
+      grid[slot][day] = [];
     });
   });
 
@@ -445,13 +555,13 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
     // Remove seconds from startTime for grid key lookup (API returns HH:MM:SS but grid keys are HH:MM)
     const startTimeKey = s.startTime?.substring(0, 5) || s.startTime;
     if (dayName && grid[startTimeKey]) {
-      if (s.status !== 'confirmed' && s.status !== 'pending' && s.subject?.toUpperCase() !== 'HAF') {
+      const isHAF = isHourActivitySchedule(s);
+      if (s.status !== 'confirmed' && s.status !== 'pending' && !isHAF) {
         return;
       }
-      const isHAF = s.subject?.toUpperCase() === 'HAF';
       let cellText = '------';
       if (isHAF) {
-        cellText = 'HAF';
+        cellText = 'Hora-atividade';
       } else if (model === 'prof_turma') {
         cellText = formatCompactClassGroup(s.classGroup || '------');
       } else if (model === 'prof_subject') {
@@ -461,12 +571,8 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
         cellText = (s.classGroup && isDifferentSubject) ? `${formatCompactClassGroup(s.classGroup)} - ${s.subject}` : (formatCompactClassGroup(s.classGroup || s.subject || '------'));
       }
 
-      if (grid[startTimeKey][dayName] === '------') {
-        grid[startTimeKey][dayName] = cellText;
-      } else {
-        if (!grid[startTimeKey][dayName].split('/').includes(cellText)) {
-          grid[startTimeKey][dayName] += '/' + cellText;
-        }
+      if (!grid[startTimeKey][dayName].some(entry => entry.text === cellText)) {
+        grid[startTimeKey][dayName].push({ text: cellText, isHAF });
       }
     }
   });
@@ -530,11 +636,12 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
             <tr class="${rowClass}">
               <td class="border border-slate-300 font-extrabold text-[#2E5077] ${thSize} text-left py-0.5 px-1">${slot}</td>
               ${days.map(day => {
-                const val = grid[slot][day];
-                const isClass = val !== '------';
-                const isHAF = val === 'HAF';
-                const cellClass = isHAF ? 'text-[#5B99C2] font-black' : (isClass ? 'text-slate-900 font-black' : 'text-slate-400');
-                return `<td title="${val}" class="border border-slate-300 ${tdSize} py-0.5 px-1 whitespace-normal break-words ${cellClass}">${val.split('/').map(abbreviateReportEntry).join(' / ')}</td>`;
+                const entries = grid[slot][day];
+                const cellText = entries.map(entry => entry.text).join(' / ') || '------';
+                return `<td title="${escapeHtml(cellText)}" class="border border-slate-300 ${tdSize} py-0.5 px-1 whitespace-normal break-words ${entries.length ? 'font-black text-slate-900' : 'text-slate-400'}">${entries.length ? entries.map(entry => entry.isHAF
+                  ? '<span class="inline-flex rounded border border-blue-300 bg-blue-50 px-1 text-blue-800">Hora-atividade</span>'
+                  : `<span>${escapeHtml(abbreviateReportEntry(entry.text))}</span>`
+                ).join(' / ') : '------'}</td>`;
               }).join('')}
             </tr>
           `).join('')}
@@ -846,38 +953,21 @@ const TeacherDashboardView = () => {
   const mySchedules = schedules.filter(schedule =>
     schedule.teacherId === user?.uid &&
     schedule.school_id === user?.school_id &&
+    !isHourActivitySchedule(schedule) &&
     /^\d{4}-\d{2}-\d{2}$/.test(schedule.date || '')
   );
   const weekSchedules = mySchedules.filter(schedule => weekDateSet.has(schedule.date));
-  const getLessonTime = schedule => {
-    const periodNumber = schedule.periodNumber || schedule.period_number;
-    const period = schoolPeriods.find(item =>
-      item.school_id === user?.school_id &&
-      item.turno === getScheduleTurno(schedule) &&
-      (periodNumber
-        ? Number(item.periodNumber) === Number(periodNumber)
-        : String(item.startTime || '').slice(0, 5) === String(schedule.startTime || '').slice(0, 5))
-    );
-    return {
-      start: String(schedule.startTime || period?.startTime || '').slice(0, 5),
-      end: String(schedule.endTime || period?.endTime || '').slice(0, 5)
-    };
-  };
   const todaySchedules = mySchedules
     .filter(schedule => schedule.date === today)
-    .sort((a, b) => getLessonTime(a).start.localeCompare(getLessonTime(b).start));
-  const getMinutes = time => {
-    const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time);
-    return match ? Number(match[1]) * 60 + Number(match[2]) : null;
-  };
+    .sort((a, b) => getScheduleLessonTime(a).start.localeCompare(getScheduleLessonTime(b).start));
   const currentLesson = todaySchedules.find(schedule => {
-    const time = getLessonTime(schedule);
-    const start = getMinutes(time.start);
-    const end = getMinutes(time.end);
+    const time = getScheduleLessonTime(schedule);
+    const start = getTimeMinutes(time.start);
+    const end = getTimeMinutes(time.end);
     return start !== null && end !== null && currentMinutes >= start && currentMinutes < end;
   });
   const nextLesson = todaySchedules.find(schedule => {
-    const start = getMinutes(getLessonTime(schedule).start);
+    const start = getTimeMinutes(getScheduleLessonTime(schedule).start);
     return start !== null && start > currentMinutes;
   });
   const assignedSubjects = (window.teacherSubjects || [])
@@ -897,7 +987,7 @@ const TeacherDashboardView = () => {
     if (!classGroups.has(key)) classGroups.set(key, { name, subjects: new Set(), lessons: new Set() });
     const group = classGroups.get(key);
     if (schedule.subject) group.subjects.add(schedule.subject);
-    const time = getLessonTime(schedule);
+    const time = getScheduleLessonTime(schedule);
     group.lessons.add(`${schedule.date}|${time.start}|${time.end}`);
   });
   const uniqueClasses = [...classGroups.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
@@ -936,7 +1026,7 @@ const TeacherDashboardView = () => {
 
   const navigateToScheduleDay = (date) => `actions.openTeacherScheduleDay('${date}')`;
   const lessonCard = (schedule, highlightedAs) => {
-    const time = getLessonTime(schedule);
+    const time = getScheduleLessonTime(schedule);
     const isCurrent = highlightedAs === 'current';
     const isNext = highlightedAs === 'next';
     return `
@@ -1022,17 +1112,44 @@ const TeacherDashboardView = () => {
             <h4 class="text-lg font-black text-slate-900">Próximas aulas da semana</h4>
             <p class="text-sm text-slate-500">${escapeHtml(formatIsoDate(weekDates[0]))} a ${escapeHtml(formatIsoDate(weekDates[5]))} · toque em um dia para ver os horários</p>
           </div>
+          ${teacherAvailabilityError ? `<p role="alert" class="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900">${escapeHtml(teacherAvailabilityError)}</p>` : ''}
           <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             ${weekDates.map((date, index) => {
               const daySchedules = weekSchedules.filter(schedule => schedule.date === date)
-                .sort((a, b) => getLessonTime(a).start.localeCompare(getLessonTime(b).start));
+                .sort((a, b) => getScheduleLessonTime(a).start.localeCompare(getScheduleLessonTime(b).start));
               const classes = [...new Set(daySchedules.map(schedule => schedule.classGroup).filter(Boolean))];
+              const weekday = (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7 + 1;
+              const configuredWeekday = weekday <= 5;
+              const availability = teacherAvailability.find(item => Number(item.weekday) === weekday)?.available !== false;
+              const unavailable = configuredWeekday && !teacherAvailabilityError && !availability;
+              const dayStyle = unavailable
+                ? 'border-rose-300 bg-rose-50'
+                : date === today
+                  ? 'border-blue-300 bg-blue-50'
+                  : configuredWeekday && !teacherAvailabilityError
+                    ? 'border-emerald-300 bg-emerald-50'
+                    : 'border-slate-200 bg-white';
+              const availabilityBadge = teacherAvailabilityError
+                ? 'bg-slate-100 text-slate-700'
+                : !configuredWeekday
+                  ? 'bg-slate-100 text-slate-700'
+                  : unavailable
+                    ? 'bg-rose-100 text-rose-800'
+                    : 'bg-emerald-100 text-emerald-800';
+              const availabilityLabel = teacherAvailabilityError
+                ? 'Disponibilidade não carregada'
+                : !configuredWeekday
+                  ? 'Sem configuração'
+                  : unavailable
+                    ? 'Indisponível'
+                    : 'Disponível';
               return `
-                <button type="button" onclick="${navigateToScheduleDay(date)}" class="rounded-xl border ${date === today ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-white'} p-4 text-left transition-colors hover:border-blue-300 hover:bg-blue-50">
+                <button type="button" onclick="${navigateToScheduleDay(date)}" class="rounded-xl border ${dayStyle} p-4 text-left transition-colors hover:border-blue-300 hover:bg-blue-50">
                   <span class="flex items-center justify-between gap-2">
                     <span class="font-black capitalize text-slate-800">${escapeHtml(weekDayNames[index])}${date === today ? ' · hoje' : ''}</span>
                     <span class="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600">${daySchedules.length}</span>
                   </span>
+                  <span class="mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${availabilityBadge}">${availabilityLabel}</span>
                   <span class="mt-2 block text-sm text-slate-600">${classes.length ? classes.map(escapeHtml).join(', ') : 'Sem aulas'}</span>
                 </button>
               `;
@@ -1115,12 +1232,16 @@ const TeacherDashboardView = () => {
 };
 
 const TeacherView = () => {
+  const mySchedules = schedules.filter(s =>
+    s.teacherId === user.uid && s.school_id === user.school_id
+  );
+  const hourActivitySchedules = getTeacherHourActivitySchedules(mySchedules)
+    .filter(schedule => !teacherScheduleDate || schedule.date === teacherScheduleDate);
   const teacherSchedules = filterSchedulesByTurno(
-    schedules.filter(s =>
-      s.teacherId === user.uid &&
-      s.school_id === user.school_id &&
-      (!teacherScheduleDate || s.date === teacherScheduleDate)
-    ),
+    [
+      ...mySchedules.filter(s => !teacherScheduleDate || s.date === teacherScheduleDate),
+      ...hourActivitySchedules
+    ],
     teacherTurno
   );
   const slots = getDetectedSlots(teacherSchedules);
@@ -2123,6 +2244,7 @@ const DEVELOPER_NAV_ITEMS = [
 const DIRETOR_NAV_ITEMS = [
   { id: 'horarios', icon: 'calendar', label: 'Horários' },
   { id: 'carga_horaria', icon: 'clock-3', label: 'Carga horária' },
+  { id: 'disponibilidade', icon: 'calendar-check', label: 'Disponibilidade' },
   { id: 'labs', icon: 'test-tube', label: 'Laboratórios' },
   { id: 'materias', icon: 'book-open', label: 'Matérias' },
   { id: 'usuarios', icon: 'users', label: 'Usuários' },
@@ -2207,6 +2329,7 @@ const DiretorView = () => `
       <div class="p-4 md:p-10 flex-1 overflow-y-auto space-y-6 md:space-y-8 print:p-0">
         ${currentTab === 'horarios' ? HorariosTab() : ''}
         ${currentTab === 'carga_horaria' ? CargaHorariaTab() : ''}
+        ${currentTab === 'disponibilidade' ? TeacherAvailabilityTab() : ''}
         ${currentTab === 'labs' ? LabsTab() : ''}
         ${currentTab === 'materias' ? MateriasEscolaTab({ viewerRole: 'diretor' }) : ''}
         ${currentTab === 'usuarios' ? UsersTab({ viewerRole: 'diretor' }) : ''}
@@ -2571,13 +2694,6 @@ const EscolasTab = () => `
   </div>
 `;
 
-const HORA_ATIVIDADE_BY_LESSON_COUNT = [
-  null, 0, 0, 1, 1, 2, 2, 2, 2, 3,
-  3, 4, 4, 4, 4, 5, 5, 5, 6, 6,
-  6, 7, 7, 7, 8, 8, 8, 9, 9, 10,
-  10
-];
-
 const CargaHorariaTab = () => {
   const weeks = getWeeksList();
   const selectedWeek = weeks.includes(workloadWeek) ? workloadWeek : weeks[0] || '';
@@ -2596,10 +2712,14 @@ const CargaHorariaTab = () => {
   });
 
   const rows = [...teachersById.values()].map(teacher => {
-    const lessonCount = weekSchedules.filter(schedule => schedule.teacherId === teacher.uid).length;
+    const lessonCount = weekSchedules.filter(schedule =>
+      schedule.teacherId === teacher.uid && !isHourActivitySchedule(schedule)
+    ).length;
     const activityHours = lessonCount === 0
       ? 0
-      : HORA_ATIVIDADE_BY_LESSON_COUNT[lessonCount] ?? null;
+      : HORA_ATIVIDADE_TABELA_VALIDADA
+        ? HORA_ATIVIDADE_TABELA[Math.min(lessonCount, 30)] ?? null
+        : null;
     return {
       teacher,
       lessonCount,
@@ -2626,8 +2746,13 @@ const CargaHorariaTab = () => {
       </header>
 
       <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-        Cada horário cadastrado na semana selecionada conta como uma aula. As horas-atividade seguem os valores do PDF para cargas de 1 a 30 aulas; acima disso, a tabela não informa um cálculo.
+        Cada horário de regência cadastrado na semana selecionada conta como uma aula. Para cargas acima de 30 aulas, aplica-se a faixa de 30 aulas da tabela.
       </div>
+      ${!HORA_ATIVIDADE_TABELA_VALIDADA ? `
+        <p role="status" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900">
+          O cálculo da hora-atividade está pausado até a direção confirmar o significado de “15/5” no título do PDF.
+        </p>
+      ` : ''}
 
       <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div class="overflow-x-auto">
@@ -2645,7 +2770,7 @@ const CargaHorariaTab = () => {
                 <tr>
                   <td class="px-5 py-4 font-bold text-slate-800">${escapeHtml(teacher.displayName || 'Professor sem nome')}</td>
                   <td class="px-5 py-4 text-center font-semibold text-slate-700">${lessonCount}</td>
-                  <td class="px-5 py-4 text-center font-semibold ${activityHours === null ? 'text-amber-700' : 'text-slate-700'}">${activityHours === null ? 'Fora da tabela' : activityHours}</td>
+                  <td class="px-5 py-4 text-center font-semibold ${activityHours === null ? 'text-amber-700' : 'text-slate-700'}">${activityHours === null ? HORA_ATIVIDADE_TABELA_VALIDADA ? 'Fora da tabela' : 'Aguardando validação' : activityHours}</td>
                   <td class="px-5 py-4 text-center font-black text-slate-900">${totalHours === null ? '—' : totalHours}</td>
                 </tr>
               `).join('') : `
@@ -2657,6 +2782,78 @@ const CargaHorariaTab = () => {
           </table>
         </div>
       </section>
+    </div>
+  `;
+};
+
+const TeacherAvailabilityTab = () => {
+  const weekdays = [
+    { number: 1, label: 'Segunda-feira' },
+    { number: 2, label: 'Terça-feira' },
+    { number: 3, label: 'Quarta-feira' },
+    { number: 4, label: 'Quinta-feira' },
+    { number: 5, label: 'Sexta-feira' }
+  ];
+  const selectedTeacher = teachers.find(teacher => teacher.uid === teacherAvailabilityTeacherId);
+  const currentWeek = getMondayDateStr(getSaoPauloToday());
+  const currentWeekSchedules = schedules.filter(schedule =>
+    schedule.teacherId === teacherAvailabilityTeacherId &&
+    schedule.date &&
+    getMondayDateStr(schedule.date) === currentWeek
+  );
+  const currentWeekPlan = getTeacherHourActivityPlan(currentWeekSchedules)[0] || {
+    quota: 0,
+    allocated: [],
+    unallocated: 0
+  };
+
+  return `
+    <div class="space-y-6">
+      <header>
+        <h3 class="text-2xl font-black text-slate-900">Disponibilidade semanal</h3>
+        <p class="mt-1 text-sm font-medium text-slate-500">Defina os dias em que cada professor está disponível. Sem registro, o dia é considerado disponível.</p>
+      </header>
+
+      <section class="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-7">
+        <label class="block max-w-xl text-xs font-bold text-slate-500">
+          Professor
+          <select onchange="actions.selectTeacherAvailabilityTeacher(this.value)" ${teachers.length ? '' : 'disabled'} class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-50">
+            ${teachers.length
+              ? teachers.map(teacher => `<option value="${escapeHtml(teacher.uid)}" ${teacher.uid === teacherAvailabilityTeacherId ? 'selected' : ''}>${escapeHtml(teacher.displayName || 'Professor sem nome')}</option>`).join('')
+              : '<option value="">Nenhum professor cadastrado</option>'}
+          </select>
+        </label>
+
+        ${teacherAvailabilityError ? `<p role="alert" class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900">${escapeHtml(teacherAvailabilityError)}</p>` : ''}
+
+        ${selectedTeacher ? `
+          <div class="divide-y divide-slate-100 rounded-2xl border border-slate-200">
+            ${weekdays.map(({ number, label }) => {
+              const availability = teacherAvailability.find(item => Number(item.weekday) === number)?.available !== false;
+              return `
+                <div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <span class="font-bold text-slate-800">${label}</span>
+                  <div class="flex gap-2">
+                    <button type="button" onclick="actions.setTeacherWeekdayAvailability('${escapeHtml(selectedTeacher.uid)}', ${number}, true)" ${teacherAvailabilityError ? 'disabled' : ''} aria-pressed="${availability}" class="rounded-lg border px-3 py-2 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${availability ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-50'}">Disponível</button>
+                    <button type="button" onclick="actions.setTeacherWeekdayAvailability('${escapeHtml(selectedTeacher.uid)}', ${number}, false)" ${teacherAvailabilityError ? 'disabled' : ''} aria-pressed="${!availability}" class="rounded-lg border px-3 py-2 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${!availability ? 'border-rose-600 bg-rose-600 text-white' : 'border-rose-200 bg-white text-rose-800 hover:bg-rose-50'}">Indisponível</button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        ` : '<p class="rounded-xl bg-slate-50 p-5 text-sm font-medium text-slate-500">Cadastre ou associe um professor à escola para configurar a disponibilidade.</p>'}
+      </section>
+
+      ${selectedTeacher && currentWeekPlan.unallocated > 0 ? `
+        <p role="status" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+          ${currentWeekPlan.unallocated} hora${currentWeekPlan.unallocated === 1 ? '' : 's'}-atividade sem alocação na semana atual de ${escapeHtml(selectedTeacher.displayName || 'Professor')}.
+        </p>
+      ` : ''}
+      ${!HORA_ATIVIDADE_TABELA_VALIDADA ? `
+        <p role="status" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900">
+          A alocação da hora-atividade está pausada até a direção confirmar o significado de “15/5” no título do PDF.
+        </p>
+      ` : ''}
     </div>
   `;
 };
@@ -3018,6 +3215,15 @@ const LabsTab = () => {
 
 const RelatoriosTab = () => {
   const weeks = getWeeksList();
+  const reportBaseSchedules = reportWeek === 'all'
+    ? schedules
+    : schedules.filter(schedule => {
+      try {
+        return getMondayDateStr(schedule.date) === reportWeek;
+      } catch {
+        return false;
+      }
+    });
   let filteredSchedules = schedules;
   if (reportWeek !== 'all') {
     filteredSchedules = schedules.filter(s => {
@@ -3029,6 +3235,11 @@ const RelatoriosTab = () => {
     });
   }
   filteredSchedules = filterSchedulesByTurno(filteredSchedules, reportTurno);
+  const reportHourActivities = [...new Set(reportBaseSchedules.map(schedule => schedule.teacherId).filter(Boolean))]
+    .flatMap(teacherId => getTeacherHourActivitySchedules(
+      reportBaseSchedules.filter(schedule => schedule.teacherId === teacherId)
+    ))
+    .filter(schedule => reportTurno === 'todos' || getScheduleTurno(schedule) === reportTurno);
   const slots = getDetectedSlots(filteredSchedules);
 
   let displayTeachers = teachers;
@@ -3261,8 +3472,12 @@ const RelatoriosTab = () => {
           ` : `
             <div class="${gridColsClass}">
               ${displayTeachers.map(teacher => {
-                const teacherSchedules = filteredSchedules.filter(s => s.teacherId === teacher.uid);
-                return TeacherScheduleCard(teacher, teacherSchedules, slots, reportModel);
+              const teacherSchedules = [
+                ...filteredSchedules.filter(s => s.teacherId === teacher.uid),
+                ...reportHourActivities.filter(s => s.teacherId === teacher.uid)
+              ];
+              const teacherSlots = getDetectedSlots([...filteredSchedules, ...reportHourActivities]);
+              return TeacherScheduleCard(teacher, teacherSchedules, teacherSlots, reportModel);
               }).join('')}
             </div>
           `}
@@ -3314,7 +3529,7 @@ const slidesContent = [
 // --- ACTIONS ---
 const TAB_ACCESS = {
   dev: ['overview', 'dev_health', 'dev_diagnostics', 'dev_system_logs', 'dev_audit', 'dev_data', 'escolas', 'materias', 'usuarios'],
-  diretor: ['horarios', 'carga_horaria', 'labs', 'materias', 'usuarios', 'relatorios'],
+  diretor: ['horarios', 'carga_horaria', 'disponibilidade', 'labs', 'materias', 'usuarios', 'relatorios'],
   teacher: ['dashboard', 'horarios', 'labs', 'materias'],
 };
 
@@ -3346,6 +3561,22 @@ const actions = {
     if (!getWeeksList().includes(week)) return;
     workloadWeek = week;
     this.renderCurrentView();
+  },
+
+  selectTeacherAvailabilityTeacher(teacherId) {
+    if (user?.role !== 'diretor' || !teachers.some(teacher => teacher.uid === teacherId)) return;
+    teacherAvailabilityTeacherId = teacherId;
+    this.init();
+  },
+
+  async setTeacherWeekdayAvailability(teacherId, weekday, available) {
+    if (user?.role !== 'diretor' || teacherId !== teacherAvailabilityTeacherId) return;
+    try {
+      await api.put('/api/teacher-availability', { teacherId, weekday, available });
+      await this.init();
+    } catch (error) {
+      showDialog(error.message || 'Não foi possível salvar a disponibilidade.');
+    }
   },
 
   setTeacherTurno(turno) {
@@ -3860,6 +4091,9 @@ const actions = {
     user = null;
     currentTab = 'dashboard';
     teacherScheduleDate = '';
+    teacherAvailability = [];
+    teacherAvailabilityTeacherId = '';
+    teacherAvailabilityError = '';
     authMode = 'closed';
     this.init();
   },
@@ -3876,6 +4110,7 @@ const actions = {
         date: s.date,
         startTime: s.starttime || s.startTime,
         endTime: s.endtime || s.endTime,
+        periodNumber: s.period_number || s.periodNumber,
         subject: s.subject,
         room: s.room,
         turno: s.turno,
@@ -3907,6 +4142,8 @@ const actions = {
         const [s, t, u, lb, sc, subs] = results.map((r, i) => r.status === 'fulfilled' ? r.value : (console.error(`Data fetch #${i} failed:`, r.reason), []));
         schedules = this.normalizeSchedules(s || []);
         teachers = t || [];
+        teacherAvailability = [];
+        teacherAvailabilityError = '';
         allUsers = u || [];
         schools = sc || [];
         schoolSubjects = subs || [];
@@ -3940,6 +4177,21 @@ const actions = {
         }
         schedules = this.normalizeSchedules(s || []);
         teachers = t || [];
+        teacherAvailabilityTeacherId = teachers.some(teacher => teacher.uid === teacherAvailabilityTeacherId)
+          ? teacherAvailabilityTeacherId
+          : teachers[0]?.uid || '';
+        teacherAvailability = [];
+        teacherAvailabilityError = '';
+        if (teacherAvailabilityTeacherId) {
+          try {
+            const availability = await api.get(`/api/teacher-availability?teacherId=${encodeURIComponent(teacherAvailabilityTeacherId)}`);
+            if (!Array.isArray(availability)) throw new Error('O servidor retornou dados inválidos de disponibilidade.');
+            teacherAvailability = availability;
+          } catch (error) {
+            console.error('Teacher availability fetch failed:', error);
+            teacherAvailabilityError = error.message || 'Não foi possível carregar a disponibilidade.';
+          }
+        }
         allUsers = u || [];
         schoolSubjects = subs || [];
         stats = {
@@ -3952,15 +4204,17 @@ const actions = {
       } else {
         schoolPeriods = [];
         schoolPeriodsError = '';
+        teacherAvailabilityTeacherId = user.uid;
         const results = await Promise.allSettled([
           api.get(`/api/schedules?teacherId=${user.uid}`),
           api.get('/api/labs/bookings'),
           api.get(`/api/teachers/${user.uid}/subjects`),
           api.get('/api/school-subjects'),
           api.get('/api/school-periods'),
-          api.get('/api/schools/public')
+          api.get('/api/schools/public'),
+          api.get(`/api/teacher-availability?teacherId=${encodeURIComponent(user.uid)}`)
         ]);
-        const [s, lb, m, subs, periods, publicSchools] = results.map((result, index) => {
+        const [s, lb, m, subs, periods, publicSchools, availability] = results.map((result, index) => {
           if (result.status === 'rejected') {
             console.error(`Data fetch #${index} failed:`, result.reason);
             return [];
@@ -3972,6 +4226,12 @@ const actions = {
           }
           return result.value;
         });
+        teacherAvailability = availability || [];
+        teacherAvailabilityError = results[6].status === 'rejected' || !Array.isArray(results[6].value)
+          ? results[6].status === 'rejected'
+            ? results[6].reason?.message || 'Não foi possível carregar a disponibilidade.'
+            : 'O servidor retornou dados inválidos de disponibilidade.'
+          : '';
         schedules = this.normalizeSchedules(s || []).filter(schedule =>
           schedule.teacherId === user.uid && schedule.school_id === user.school_id
         );
@@ -4544,7 +4804,13 @@ const actions = {
         }
       });
     }
+    const reportBaseSchedules = filteredSchedules;
     filteredSchedules = filterSchedulesByTurno(filteredSchedules, reportTurno);
+    const reportHourActivities = [...new Set(reportBaseSchedules.map(schedule => schedule.teacherId).filter(Boolean))]
+      .flatMap(teacherId => getTeacherHourActivitySchedules(
+        reportBaseSchedules.filter(schedule => schedule.teacherId === teacherId)
+      ))
+      .filter(schedule => reportTurno === 'todos' || getScheduleTurno(schedule) === reportTurno);
 
     let currentDisplayTeachers = teachers;
     if (reportTeacher !== 'all') {
@@ -4563,7 +4829,7 @@ const actions = {
       currentDisplayTeachers = extracted;
     }
 
-    const slots = getDetectedSlots(filteredSchedules);
+    const slots = getDetectedSlots([...filteredSchedules, ...reportHourActivities]);
 
     let items = [];
     const isTurma = reportModel === 'turma_grid';
@@ -4643,7 +4909,10 @@ const actions = {
           const turmaSchedules = filteredSchedules.filter(s => s.classGroup === item);
           return TurmaScheduleCard(item, turmaSchedules, slots);
         } else {
-          const teacherSchedules = filteredSchedules.filter(s => s.teacherId === item.uid);
+          const teacherSchedules = [
+            ...filteredSchedules.filter(s => s.teacherId === item.uid),
+            ...reportHourActivities.filter(s => s.teacherId === item.uid)
+          ];
           return TeacherScheduleCard(item, teacherSchedules, slots, reportModel);
         }
       }).join('');

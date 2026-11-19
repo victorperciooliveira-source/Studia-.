@@ -140,7 +140,7 @@ Adicionalmente, `vite.config.ts` injeta `process.env.GEMINI_API_KEY` como `defin
 - **`api_base_url` / detecção de ambiente**: em `localhost` a API aponta sempre para `http://localhost:3000`; no próprio host Render, usa a mesma origem; em outros hosts, aponta para `https://studia-8st9.onrender.com`.
 - **Código morto**: `SlidesTab` (um carrossel de slides institucionais sobre o Studia) e as actions `nextSlide`/`prevSlide`/estado `currentSlide` existem no arquivo mas não são chamados por nenhuma view atual — não aparecem em lugar nenhum da aplicação.
 - **Sem testes e sem lint de código**: não há suíte de testes no repositório; `npm run lint` roda apenas `tsc --noEmit` (checagem de tipos), sem ESLint/Prettier configurados.
-- **Schema do banco**: as tabelas são referenciadas por nome direto no `server.ts`; o schema inicial e as migrações SQL ficam neste repositório e devem ser aplicados no Supabase.
+- **Schema do banco**: as tabelas são referenciadas por nome direto no `server.ts`; o schema inicial e as migrações SQL ficam neste repositório e devem ser aplicados no Supabase. A migração `013_teacher_weekday_availability.sql` cria a disponibilidade semanal dos professores; sem registro, o dia é considerado disponível. O cálculo da hora-atividade permanece pausado até a direção validar a interpretação de “15/5” do PDF.
 
 ## 9. Vulnerabilidades conhecidas
 
