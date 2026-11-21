@@ -83,6 +83,9 @@ let allUsers = [];
 let selectedUserIds = new Set();
 let editingTeacherSubjectsId = null;
 let editingUserId = null;
+let editingTeacherClassGroupAssignments = [];
+let editingTeacherSubjectSearch = '';
+let editingTeacherClassSearch = '';
 let schools = [];
 let schoolSubjects = [];
 let schoolPeriods = [];
@@ -1460,10 +1463,6 @@ const CreateModal = () => `
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label class="space-y-1">
-            <span class="text-xs font-bold uppercase text-slate-500">Sala</span>
-            <input type="text" id="form-room" placeholder="Sala" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
-          </label>
-          <label class="space-y-1">
             <span class="text-xs font-bold uppercase text-slate-500">Professor</span>
             <select id="form-teacher" onchange="actions.updateScheduleSubjectOptions(this.value)" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
               <option value="">Selecione o Professor</option>
@@ -2421,6 +2420,15 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
   const editingTeacherSubjects = editingTeacher
     ? schoolSubjects.filter(subject => subject.school_id === editingTeacher.school_id)
     : [];
+  const editingTeacherClassGroups = editingTeacher
+    ? [...new Map(
+        schedules
+          .filter(schedule => schedule.school_id === editingTeacher.school_id)
+          .map(schedule => String(schedule.classGroup || '').trim())
+          .filter(Boolean)
+          .map(classGroup => [classGroup.toLocaleLowerCase('pt-BR'), classGroup])
+      ).values()].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    : [];
   const selectableUserIds = users.filter(account => account.uid !== user?.uid).map(account => account.uid);
   const selectedCount = selectableUserIds.filter(uid => selectedUserIds.has(uid)).length;
   const allUsersSelected = selectableUserIds.length > 0 && selectedCount === selectableUserIds.length;
@@ -2553,7 +2561,7 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
                 <i data-lucide="x" class="h-5 w-5"></i>
               </button>
             </header>
-            <div class="max-h-[60vh] space-y-2 overflow-y-auto p-5">
+            <div class="max-h-[60vh] space-y-5 overflow-y-auto p-5">
               ${!editingTeacher.school_id ? `
                 ${canManageAllRoles ? `
                   <div class="space-y-3 rounded-xl bg-amber-50 p-4">
@@ -2565,16 +2573,57 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
                     <button type="button" onclick="actions.assignTeacherSchool('${editingTeacher.uid}')" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Associar escola</button>
                   </div>
                 ` : '<p class="rounded-xl bg-amber-50 p-4 text-sm font-semibold text-amber-800">Este professor ainda não está associado a uma escola. Peça à direção pedagógica para vinculá-lo.</p>'}
-              ` : editingTeacherSubjects.length ? editingTeacherSubjects.map(subject => {
-                const isAssigned = (subject.teacherIds || []).includes(editingTeacher.uid);
-                return `
-                  <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                    <input type="checkbox" ${isAssigned ? 'checked' : ''} onchange="actions.setTeacherSubject('${subject.id}', '${editingTeacher.uid}', this.checked)" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
-                    ${subject.subject}
-                  </label>
-                `;
-              }).join('') : `
-                <p class="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">Não há matérias cadastradas para a escola deste professor.</p>
+              ` : `
+                <section>
+                  <div class="mb-3">
+                    <label for="teacher-subject-editor-search" class="mb-2 block text-xs font-bold uppercase text-slate-500">Pesquisar matérias</label>
+                    <input id="teacher-subject-editor-search" type="search" value="${escapeHtml(editingTeacherSubjectSearch)}" oninput="actions.setTeacherSubjectEditorSearch(this.value)" placeholder="Digite o nome da matéria" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+                  </div>
+                  <div class="space-y-2">
+                    ${(() => {
+                      const normalizedSearch = editingTeacherSubjectSearch.trim().toLocaleLowerCase('pt-BR');
+                      const visibleSubjects = editingTeacherSubjects.filter(subject =>
+                        !normalizedSearch || String(subject.subject || '').toLocaleLowerCase('pt-BR').includes(normalizedSearch)
+                      );
+                      return visibleSubjects.length ? visibleSubjects.map(subject => {
+                        const isAssigned = (subject.teacherIds || []).includes(editingTeacher.uid);
+                        return `
+                          <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                            <input type="checkbox" ${isAssigned ? 'checked' : ''} onchange="actions.setTeacherSubject('${subject.id}', '${editingTeacher.uid}', this.checked)" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                            ${escapeHtml(subject.subject)}
+                          </label>
+                        `;
+                      }).join('') : '<p class="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">Nenhuma matéria corresponde à pesquisa.</p>';
+                    })()}
+                  </div>
+                </section>
+                <section class="border-t border-slate-200 pt-5">
+                  <h5 class="text-sm font-black text-slate-800">Turmas</h5>
+                  <p class="mt-1 text-xs font-medium text-slate-500">Pesquise e selecione as turmas deste professor.</p>
+                  <div class="mb-3 mt-3">
+                    <label for="teacher-class-editor-search" class="mb-2 block text-xs font-bold uppercase text-slate-500">Pesquisar turmas</label>
+                    <input id="teacher-class-editor-search" type="search" value="${escapeHtml(editingTeacherClassSearch)}" oninput="actions.setTeacherClassEditorSearch(this.value)" placeholder="Digite o nome da turma" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+                  </div>
+                  <div class="space-y-2">
+                    ${(() => {
+                      const normalizedSearch = editingTeacherClassSearch.trim().toLocaleLowerCase('pt-BR');
+                      const visibleClassGroups = editingTeacherClassGroups.filter(classGroup =>
+                        !normalizedSearch || classGroup.toLocaleLowerCase('pt-BR').includes(normalizedSearch)
+                      );
+                      return visibleClassGroups.length ? visibleClassGroups.map(classGroup => {
+                        const isAssigned = editingTeacherClassGroupAssignments.some(
+                          assigned => assigned.toLocaleLowerCase('pt-BR') === classGroup.toLocaleLowerCase('pt-BR')
+                        );
+                        return `
+                          <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                            <input type="checkbox" ${isAssigned ? 'checked' : ''} onchange="actions.setTeacherClassGroup('${editingTeacher.uid}', '${encodeURIComponent(classGroup)}', this.checked)" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                            ${escapeHtml(classGroup)}
+                          </label>
+                        `;
+                      }).join('') : '<p class="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">Nenhuma turma corresponde à pesquisa.</p>';
+                    })()}
+                  </div>
+                </section>
               `}
             </div>
             <footer class="flex justify-end border-t border-slate-200 p-4">
@@ -4271,8 +4320,21 @@ const actions = {
     this.renderCurrentView();
   },
 
-  toggleTeacherSubjectsEditor(teacherId) {
+  async toggleTeacherSubjectsEditor(teacherId) {
     editingTeacherSubjectsId = editingTeacherSubjectsId === teacherId ? null : teacherId;
+    editingTeacherSubjectSearch = '';
+    editingTeacherClassSearch = '';
+    editingTeacherClassGroupAssignments = [];
+    if (editingTeacherSubjectsId) {
+      try {
+        const assignments = await api.get(`/api/teachers/${encodeURIComponent(teacherId)}/class-groups`);
+        editingTeacherClassGroupAssignments = Array.isArray(assignments)
+          ? assignments.map(item => item.classGroup).filter(Boolean)
+          : [];
+      } catch (err) {
+        showDialog(err.message || 'Não foi possível carregar as turmas do professor.');
+      }
+    }
     this.renderCurrentView();
   },
 
@@ -4338,7 +4400,30 @@ const actions = {
 
   closeTeacherSubjectsEditor() {
     editingTeacherSubjectsId = null;
+    editingTeacherSubjectSearch = '';
+    editingTeacherClassSearch = '';
+    editingTeacherClassGroupAssignments = [];
     this.renderCurrentView();
+  },
+
+  setTeacherSubjectEditorSearch(value) {
+    editingTeacherSubjectSearch = value;
+    const searchInput = $('#teacher-subject-editor-search');
+    const cursorPosition = searchInput?.selectionStart ?? value.length;
+    this.renderCurrentView();
+    const updatedSearchInput = $('#teacher-subject-editor-search');
+    updatedSearchInput?.focus();
+    updatedSearchInput?.setSelectionRange(cursorPosition, cursorPosition);
+  },
+
+  setTeacherClassEditorSearch(value) {
+    editingTeacherClassSearch = value;
+    const searchInput = $('#teacher-class-editor-search');
+    const cursorPosition = searchInput?.selectionStart ?? value.length;
+    this.renderCurrentView();
+    const updatedSearchInput = $('#teacher-class-editor-search');
+    updatedSearchInput?.focus();
+    updatedSearchInput?.setSelectionRange(cursorPosition, cursorPosition);
   },
 
   async deleteUser(uid, name, email) {
@@ -4446,6 +4531,28 @@ const actions = {
     }
   },
 
+  async setTeacherClassGroup(teacherId, encodedClassGroup, isAssigned) {
+    const classGroup = decodeURIComponent(encodedClassGroup);
+    if (!classGroup) return;
+    try {
+      if (isAssigned) {
+        await api.post(`/api/teachers/${encodeURIComponent(teacherId)}/class-groups`, { classGroup });
+        if (!editingTeacherClassGroupAssignments.some(item => item.toLocaleLowerCase('pt-BR') === classGroup.toLocaleLowerCase('pt-BR'))) {
+          editingTeacherClassGroupAssignments.push(classGroup);
+        }
+      } else {
+        await api.delete(`/api/teachers/${encodeURIComponent(teacherId)}/class-groups/${encodeURIComponent(classGroup)}`);
+        editingTeacherClassGroupAssignments = editingTeacherClassGroupAssignments.filter(
+          item => item.toLocaleLowerCase('pt-BR') !== classGroup.toLocaleLowerCase('pt-BR')
+        );
+      }
+      this.renderCurrentView();
+    } catch (err) {
+      this.renderCurrentView();
+      showDialog(err.message || 'Erro ao atualizar vínculo da turma.');
+    }
+  },
+
   async changeUserRole(uid, role) {
     if (!uid || uid === user?.uid) return;
     try {
@@ -4498,7 +4605,7 @@ const actions = {
     const data = {
       subject: $('#form-subject').value.trim(),
       classGroup: $('#form-class-group').value.trim(),
-      room: $('#form-room').value.trim(),
+      room: '',
       teacherId: teacherSelect.value,
       turno,
       startDate,

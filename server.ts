@@ -1432,8 +1432,8 @@ app.post('/api/schedules/recurring', async (req, res) => {
       periodNumbers.some(period => period > maximumPeriods)) {
     return res.status(400).json({ error: 'Selecione ao menos um período válido.' });
   }
-  if (!subject || !classGroup || !room || !teacherId) {
-    return res.status(400).json({ error: 'Preencha matéria, turma, sala e professor.' });
+  if (!subject || !classGroup || !teacherId) {
+    return res.status(400).json({ error: 'Preencha matéria, turma e professor.' });
   }
 
   const teacher = await getUserFromDB(teacherId);
@@ -1977,6 +1977,96 @@ app.delete('/api/school-subjects/:id/teachers/:teacherId', async (req, res) => {
     .eq('subject_id', subject.id)
     .eq('teacher_id', req.params.teacherId);
   if (error) return res.status(500).json({ error: 'Erro ao desvincular professor da matéria' });
+  res.json({ status: 'success' });
+});
+
+app.get('/api/teachers/:uid/class-groups', async (req, res) => {
+  const userInfo = await validateUserPermission(req);
+  if (!userInfo) return res.status(401).json({ error: 'Não autorizado' });
+  if (userInfo.role === 'teacher' && req.params.uid !== userInfo.uid) {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+
+  const teacher = await getUserFromDB(req.params.uid);
+  if (!teacher || teacher.role !== 'teacher') {
+    return res.status(404).json({ error: 'Professor não encontrado' });
+  }
+  if (userInfo.role === 'diretor' && teacher.school_id !== userInfo.school_id) {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+  if (!teacher.school_id) return res.json([]);
+
+  const { data, error } = await supabase
+    .from('teacher_class_groups')
+    .select('id,school_id,teacher_id,class_group')
+    .eq('teacher_id', req.params.uid)
+    .eq('school_id', teacher.school_id)
+    .order('class_group', { ascending: true });
+  if (error) return res.status(500).json({ error: 'Erro ao buscar turmas do professor' });
+
+  res.json((data || []).map(item => ({
+    id: item.id,
+    schoolId: item.school_id,
+    teacherId: item.teacher_id,
+    classGroup: item.class_group
+  })));
+});
+
+app.post('/api/teachers/:uid/class-groups', async (req, res) => {
+  const userInfo = await requireSubjectManager(req, res);
+  if (!userInfo) return;
+
+  const classGroup = sanitizeString(req.body.classGroup);
+  if (!classGroup) return res.status(400).json({ error: 'Turma é obrigatória' });
+
+  const teacher = await getUserFromDB(req.params.uid);
+  if (!teacher?.school_id || teacher.role !== 'teacher') {
+    return res.status(400).json({ error: 'Professor não está associado a uma escola' });
+  }
+  if (userInfo.role === 'diretor' && teacher.school_id !== userInfo.school_id) {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+
+  const { error } = await supabase.from('teacher_class_groups').upsert(
+    { teacher_id: req.params.uid, school_id: teacher.school_id, class_group: classGroup },
+    { onConflict: 'school_id,teacher_id,class_group', ignoreDuplicates: true }
+  );
+  if (error) return res.status(500).json({ error: 'Erro ao vincular professor à turma' });
+  res.json({ status: 'success', classGroup });
+});
+
+app.delete('/api/teachers/:uid/class-groups/:classGroup', async (req, res) => {
+  const userInfo = await requireSubjectManager(req, res);
+  if (!userInfo) return;
+
+  const classGroup = sanitizeString(req.params.classGroup);
+  if (!classGroup) return res.status(400).json({ error: 'Turma é obrigatória' });
+
+  const teacher = await getUserFromDB(req.params.uid);
+  if (!teacher?.school_id || teacher.role !== 'teacher') {
+    return res.status(400).json({ error: 'Professor não está associado a uma escola' });
+  }
+  if (userInfo.role === 'diretor' && teacher.school_id !== userInfo.school_id) {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+
+  const { data: assignments, error: findError } = await supabase
+    .from('teacher_class_groups')
+    .select('id,class_group')
+    .eq('teacher_id', req.params.uid)
+    .eq('school_id', teacher.school_id);
+  if (findError) return res.status(500).json({ error: 'Erro ao verificar vínculo da turma' });
+
+  const assignment = (assignments || []).find(
+    item => String(item.class_group).toLocaleLowerCase() === classGroup.toLocaleLowerCase()
+  );
+  if (!assignment) return res.json({ status: 'success' });
+
+  const { error } = await supabase
+    .from('teacher_class_groups')
+    .delete()
+    .eq('id', assignment.id);
+  if (error) return res.status(500).json({ error: 'Erro ao desvincular professor da turma' });
   res.json({ status: 'success' });
 });
 
