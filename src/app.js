@@ -2417,10 +2417,6 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
     .filter(account => canManageAllRoles || account.role !== 'dev')
     .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
   const editingUser = users.find(account => account.uid === editingUserId);
-  const editingUserSubjects = editingUser?.role === 'teacher'
-    ? schoolSubjects.filter(subject => subject.school_id === editingUser.school_id && (subject.teacherIds || []).includes(editingUser.uid))
-    : [];
-  const editingUserSubject = editingUser?.subject || editingUserSubjects.map(subject => subject.subject).join(', ');
   const editingTeacher = users.find(account => account.uid === editingTeacherSubjectsId && account.role === 'teacher');
   const editingTeacherSubjects = editingTeacher
     ? schoolSubjects.filter(subject => subject.school_id === editingTeacher.school_id)
@@ -2610,7 +2606,7 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
               </label>
               <label class="block text-xs font-bold text-slate-500">
                 Perfil
-                <select id="edit-user-role" onchange="actions.toggleEditUserSubject()" ${editingUser.uid === user?.uid ? 'disabled' : ''} class="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-900 disabled:opacity-60">
+                <select id="edit-user-role" ${editingUser.uid === user?.uid ? 'disabled' : ''} class="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-900 disabled:opacity-60">
                   ${roleOptions.map(role => `<option value="${role}" ${editingUser.role === role ? 'selected' : ''}>${ROLE_META[role].label}</option>`).join('')}
                 </select>
                 ${editingUser.uid === user?.uid ? '<span class="mt-1 block font-medium text-slate-400">Não é possível alterar seu próprio perfil.</span>' : ''}
@@ -2624,10 +2620,6 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
                   </select>
                 </label>
               ` : ''}
-              <label id="edit-user-subject-wrapper" class="block text-xs font-bold text-slate-500 ${editingUser.role === 'teacher' ? '' : 'hidden'}">
-                Matéria(s)
-                <input id="edit-user-subject" type="text" value="${escapeHtml(editingUserSubject || '')}" placeholder="Ex.: Matemática, Física" class="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-900">
-              </label>
               <footer class="flex justify-end gap-3 border-t border-slate-200 pt-4">
                 <button type="button" onclick="actions.closeEditUserModal()" class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
                 <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Salvar alterações</button>
@@ -4295,12 +4287,6 @@ const actions = {
     this.renderCurrentView();
   },
 
-  toggleEditUserSubject() {
-    const subjectWrapper = $('#edit-user-subject-wrapper');
-    const role = $('#edit-user-role')?.value;
-    if (subjectWrapper) subjectWrapper.classList.toggle('hidden', role !== 'teacher');
-  },
-
   async saveUser(event, uid) {
     event.preventDefault();
     const target = allUsers.find(account => account.uid === uid);
@@ -4319,10 +4305,6 @@ const actions = {
 
     const payload = { displayName, email };
     if (uid !== user?.uid) payload.role = role;
-    if (role === 'teacher') {
-      const subjectInput = $('#edit-user-subject');
-      if (subjectInput) payload.subject = subjectInput.value.trim();
-    }
     if (user?.role === 'dev') {
       payload.schoolId = $('#edit-user-school')?.value || null;
     }
