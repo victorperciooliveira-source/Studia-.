@@ -86,6 +86,7 @@ let editingUserId = null;
 let editingTeacherClassGroupAssignments = [];
 let editingTeacherSubjectSearch = '';
 let editingTeacherClassSearch = '';
+let userSearch = '';
 let schools = [];
 let schoolSubjects = [];
 let schoolPeriods = [];
@@ -2412,9 +2413,16 @@ const MateriasEscolaTab = ({ viewerRole }) => `
 
 const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
   const canManageAllRoles = viewerRole === 'dev';
-  const users = [...allUsers]
+  const allVisibleUsers = [...allUsers]
     .filter(account => canManageAllRoles || account.role !== 'dev')
     .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+  const normalizedUserSearch = normalize(userSearch);
+  const users = normalizedUserSearch
+    ? allVisibleUsers.filter(account =>
+        normalize(account.displayName || '').includes(normalizedUserSearch) ||
+        normalize(account.email || '').includes(normalizedUserSearch)
+      )
+    : allVisibleUsers;
   const editingUser = users.find(account => account.uid === editingUserId);
   const editingTeacher = users.find(account => account.uid === editingTeacherSubjectsId && account.role === 'teacher');
   const editingTeacherSubjects = editingTeacher
@@ -2454,6 +2462,20 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
             <i data-lucide="users" class="w-3.5 h-3.5"></i> ${users.length} usuários
           </div>
         </div>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <label for="user-search" class="mb-2 block text-xs font-bold uppercase text-slate-500">Pesquisar usuários</label>
+        <div class="relative">
+          <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"></i>
+          <input id="user-search" type="search" value="${escapeHtml(userSearch)}" oninput="actions.setUserSearch(this.value)" placeholder="Buscar por nome ou e-mail" class="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-10 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500">
+          ${userSearch ? `
+            <button type="button" onclick="actions.clearUserSearch()" class="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" aria-label="Limpar pesquisa">
+              <i data-lucide="x" class="h-4 w-4"></i>
+            </button>
+          ` : ''}
+        </div>
+        ${normalizedUserSearch ? `<p class="mt-2 text-xs font-medium text-slate-500">${users.length} de ${allVisibleUsers.length} usuários encontrados.</p>` : ''}
       </div>
 
       ${selectedCount > 0 ? `
@@ -4424,6 +4446,22 @@ const actions = {
     const updatedSearchInput = $('#teacher-class-editor-search');
     updatedSearchInput?.focus();
     updatedSearchInput?.setSelectionRange(cursorPosition, cursorPosition);
+  },
+
+  setUserSearch(value) {
+    userSearch = value;
+    const searchInput = $('#user-search');
+    const cursorPosition = searchInput?.selectionStart ?? value.length;
+    this.renderCurrentView();
+    const updatedSearchInput = $('#user-search');
+    updatedSearchInput?.focus();
+    updatedSearchInput?.setSelectionRange(cursorPosition, cursorPosition);
+  },
+
+  clearUserSearch() {
+    userSearch = '';
+    this.renderCurrentView();
+    $('#user-search')?.focus();
   },
 
   async deleteUser(uid, name, email) {
