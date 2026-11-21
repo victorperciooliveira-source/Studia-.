@@ -8,6 +8,12 @@ const escapeHtml = value => String(value || '').replace(/[&<>"']/g, character =>
   '"': '&quot;',
   "'": '&#39;'
 })[character]);
+const normalize = value => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .trim()
+  .replace(/\s+/g, ' ')
+  .toLocaleLowerCase('pt-BR');
 const Logo = (width = 180, height = 50) => `
   <svg width="${width}" height="${height}" viewBox="0 0 240 65" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block;">
     <!-- Light Blue Ribbon/Swoosh flourishes around the text -->
