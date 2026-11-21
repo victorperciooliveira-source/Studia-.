@@ -95,6 +95,9 @@ let editingTeacherClassSearch = '';
 let userSearch = '';
 let schools = [];
 let schoolSubjects = [];
+let schoolClassGroups = [];
+let classGroupSchoolId = '';
+let classGroupSearch = '';
 let schoolPeriods = [];
 let schoolPeriodsError = '';
 let periodAdminTurno = 'manha';
@@ -2244,6 +2247,7 @@ const DEVELOPER_NAV_ITEMS = [
   { id: 'dev_data', icon: 'database', label: 'Dados e backups' },
   { id: 'escolas', icon: 'building', label: 'Escolas' },
   { id: 'materias', icon: 'book-open', label: 'Matérias' },
+  { id: 'turmas', icon: 'users-round', label: 'Turmas' },
   { id: 'usuarios', icon: 'users', label: 'Usuários' },
 ];
 
@@ -2253,6 +2257,7 @@ const DIRETOR_NAV_ITEMS = [
   { id: 'disponibilidade', icon: 'calendar-check', label: 'Disponibilidade' },
   { id: 'labs', icon: 'test-tube', label: 'Laboratórios' },
   { id: 'materias', icon: 'book-open', label: 'Matérias' },
+  { id: 'turmas', icon: 'users-round', label: 'Turmas' },
   { id: 'usuarios', icon: 'users', label: 'Usuários' },
   { id: 'relatorios', icon: 'bar-chart', label: 'Relatórios' },
 ];
@@ -2287,6 +2292,7 @@ const DeveloperView = () => `
         ${currentTab === 'dev_data' ? DeveloperDataTab() : ''}
         ${currentTab === 'escolas' ? EscolasTab() : ''}
         ${currentTab === 'materias' ? MateriasEscolaTab({ viewerRole: 'dev' }) : ''}
+        ${currentTab === 'turmas' ? TurmasEscolaTab({ viewerRole: 'dev' }) : ''}
         ${currentTab === 'usuarios' ? UsersTab({ viewerRole: 'dev' }) : ''}
       </div>
     </main>
@@ -2338,6 +2344,7 @@ const DiretorView = () => `
         ${currentTab === 'disponibilidade' ? TeacherAvailabilityTab() : ''}
         ${currentTab === 'labs' ? LabsTab() : ''}
         ${currentTab === 'materias' ? MateriasEscolaTab({ viewerRole: 'diretor' }) : ''}
+        ${currentTab === 'turmas' ? TurmasEscolaTab({ viewerRole: 'diretor' }) : ''}
         ${currentTab === 'usuarios' ? UsersTab({ viewerRole: 'diretor' }) : ''}
         ${currentTab === 'relatorios' ? RelatoriosTab() : ''}
       </div>
@@ -2417,6 +2424,81 @@ const MateriasEscolaTab = ({ viewerRole }) => `
   </div>
 `;
 
+const TurmasEscolaTab = ({ viewerRole }) => {
+  const canChooseSchool = viewerRole === 'dev';
+  const activeSchoolId = viewerRole === 'diretor'
+    ? user?.school_id
+    : (classGroupSchoolId || user?.school_id || schools[0]?.id || '');
+  const groups = schoolClassGroups
+    .filter(item => item.school_id === activeSchoolId)
+    .filter(item => !classGroupSearch || normalize(item.classGroup).includes(normalize(classGroupSearch)))
+    .sort((a, b) => a.classGroup.localeCompare(b.classGroup, 'pt-BR'));
+  const schoolTeachers = teachers.filter(teacher => teacher.school_id === activeSchoolId);
+
+  return `
+    <div class="space-y-5">
+      <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h3 class="text-2xl font-black text-slate-900">Turmas</h3>
+          <p class="mt-1 text-sm font-medium text-slate-500">Cadastre as turmas da escola e selecione os professores de cada uma.</p>
+        </div>
+        ${canChooseSchool ? `
+          <select onchange="actions.selectClassGroupSchool(this.value)" class="w-full md:w-72 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-700" aria-label="Escola das turmas">
+            <option value="">Selecione uma escola</option>
+            ${schools.map(school => `<option value="${school.id}" ${school.id === activeSchoolId ? 'selected' : ''}>${school.name}</option>`).join('')}
+          </select>
+        ` : ''}
+      </div>
+
+      <section class="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 md:p-7 shadow-sm">
+        <form onsubmit="actions.createSchoolClassGroup(event)" class="flex flex-col gap-3 sm:flex-row">
+          <input id="school-class-group-name" type="text" maxlength="255" placeholder="Ex.: 9A, 3º B, Ensino Médio 1" class="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-800" required ${activeSchoolId ? '' : 'disabled'}>
+          <button type="submit" class="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" ${activeSchoolId ? '' : 'disabled'}>Adicionar turma</button>
+        </form>
+
+        ${!activeSchoolId ? `
+          <p class="rounded-xl bg-amber-50 p-4 text-sm font-semibold text-amber-800">Selecione uma escola para cadastrar turmas.</p>
+        ` : `
+          <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <input id="school-class-group-search" type="search" value="${escapeHtml(classGroupSearch)}" oninput="actions.setClassGroupSearch(this.value)" placeholder="Pesquisar turma" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+          </div>
+
+          ${groups.length === 0 ? `
+            <p class="rounded-xl bg-slate-50 p-5 text-sm font-semibold text-slate-500">${classGroupSearch ? 'Nenhuma turma corresponde à pesquisa.' : 'Nenhuma turma cadastrada nesta escola.'}</p>
+          ` : `
+            <div class="grid gap-4 lg:grid-cols-2">
+              ${groups.map(group => `
+                <article class="rounded-2xl border border-slate-200 p-5">
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 class="text-lg font-black text-slate-900">${escapeHtml(group.classGroup)}</h4>
+                      <p class="mt-1 text-xs font-bold uppercase tracking-wide text-slate-400">${(group.teacherIds || []).length} professor(es)</p>
+                    </div>
+                    <button type="button" onclick="actions.deleteSchoolClassGroup('${group.id}', '${escapeHtml(group.classGroup).replace(/'/g, "\\'")}')" class="rounded-lg border border-rose-200 p-2 text-rose-600 hover:bg-rose-50" title="Excluir turma" aria-label="Excluir turma ${escapeHtml(group.classGroup)}">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                  <div class="mt-4 space-y-2">
+                    ${schoolTeachers.length ? schoolTeachers.map(teacher => {
+                      const assigned = (group.teacherIds || []).includes(teacher.uid);
+                      return `
+                        <label class="flex cursor-pointer items-center gap-3 rounded-xl border ${assigned ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-white'} px-3 py-2.5 text-sm font-semibold text-slate-700">
+                          <input type="checkbox" ${assigned ? 'checked' : ''} onchange="actions.setClassGroupTeacher('${group.id}', '${teacher.uid}', this.checked)" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                          <span>${escapeHtml(teacher.displayName || teacher.email || 'Professor')}</span>
+                        </label>
+                      `;
+                    }).join('') : '<p class="rounded-xl bg-slate-50 p-3 text-sm font-medium text-slate-500">Cadastre ou associe professores a esta escola.</p>'}
+                  </div>
+                </article>
+              `).join('')}
+            </div>
+          `}
+        `}
+      </section>
+    </div>
+  `;
+};
+
 const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
   const canManageAllRoles = viewerRole === 'dev';
   const allVisibleUsers = [...allUsers]
@@ -2435,13 +2517,10 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
     ? schoolSubjects.filter(subject => subject.school_id === editingTeacher.school_id)
     : [];
   const editingTeacherClassGroups = editingTeacher
-    ? [...new Map(
-        schedules
-          .filter(schedule => schedule.school_id === editingTeacher.school_id)
-          .map(schedule => String(schedule.classGroup || '').trim())
-          .filter(Boolean)
-          .map(classGroup => [classGroup.toLocaleLowerCase('pt-BR'), classGroup])
-      ).values()].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    ? schoolClassGroups
+        .filter(group => group.school_id === editingTeacher.school_id)
+        .map(group => group.classGroup)
+        .sort((a, b) => a.localeCompare(b, 'pt-BR'))
     : [];
   const selectableUserIds = users.filter(account => account.uid !== user?.uid).map(account => account.uid);
   const selectedCount = selectableUserIds.filter(uid => selectedUserIds.has(uid)).length;
@@ -3586,8 +3665,8 @@ const slidesContent = [
 
 // --- ACTIONS ---
 const TAB_ACCESS = {
-  dev: ['overview', 'dev_health', 'dev_diagnostics', 'dev_system_logs', 'dev_audit', 'dev_data', 'escolas', 'materias', 'usuarios'],
-  diretor: ['horarios', 'carga_horaria', 'disponibilidade', 'labs', 'materias', 'usuarios', 'relatorios'],
+  dev: ['overview', 'dev_health', 'dev_diagnostics', 'dev_system_logs', 'dev_audit', 'dev_data', 'escolas', 'materias', 'turmas', 'usuarios'],
+  diretor: ['horarios', 'carga_horaria', 'disponibilidade', 'labs', 'materias', 'turmas', 'usuarios', 'relatorios'],
   teacher: ['dashboard', 'horarios', 'labs', 'materias'],
 };
 
@@ -4195,9 +4274,10 @@ const actions = {
           api.get('/api/users'),
           api.get('/api/labs/bookings'),
           api.get('/api/schools'),
-          api.get('/api/school-subjects')
+          api.get('/api/school-subjects'),
+          api.get('/api/school-class-groups')
         ]);
-        const [s, t, u, lb, sc, subs] = results.map((r, i) => r.status === 'fulfilled' ? r.value : (console.error(`Data fetch #${i} failed:`, r.reason), []));
+        const [s, t, u, lb, sc, subs, classGroups] = results.map((r, i) => r.status === 'fulfilled' ? r.value : (console.error(`Data fetch #${i} failed:`, r.reason), []));
         schedules = this.normalizeSchedules(s || []);
         teachers = t || [];
         teacherAvailability = [];
@@ -4205,8 +4285,12 @@ const actions = {
         allUsers = u || [];
         schools = sc || [];
         schoolSubjects = subs || [];
+        schoolClassGroups = classGroups || [];
         if (!schools.some(school => school.id === subjectSchoolId)) {
           subjectSchoolId = user.school_id || schools[0]?.id || '';
+        }
+        if (!schools.some(school => school.id === classGroupSchoolId)) {
+          classGroupSchoolId = user.school_id || schools[0]?.id || '';
         }
         stats = {
           total: schedules.length,
@@ -4222,10 +4306,11 @@ const actions = {
           api.get(`/api/users?schoolId=${user.school_id}`),
           api.get('/api/labs/bookings'),
           api.get('/api/school-subjects'),
+          api.get('/api/school-class-groups'),
           api.get('/api/school-periods')
         ]);
-        const [s, t, u, lb, subs] = results.slice(0, 5).map((r, i) => r.status === 'fulfilled' ? r.value : (console.error(`Data fetch #${i} failed:`, r.reason), []));
-        const periodResult = results[5];
+        const [s, t, u, lb, subs, classGroups] = results.slice(0, 6).map((r, i) => r.status === 'fulfilled' ? r.value : (console.error(`Data fetch #${i} failed:`, r.reason), []));
+        const periodResult = results[6];
         schoolPeriods = periodResult.status === 'fulfilled' ? periodResult.value : [];
         if (periodResult.status === 'rejected') {
           console.error('School periods fetch failed:', periodResult.reason);
@@ -4252,6 +4337,7 @@ const actions = {
         }
         allUsers = u || [];
         schoolSubjects = subs || [];
+        schoolClassGroups = classGroups || [];
         stats = {
           total: schedules.length,
           confirmed: schedules.filter(item => item.status === 'confirmed').length,
@@ -4468,6 +4554,70 @@ const actions = {
     userSearch = '';
     this.renderCurrentView();
     $('#user-search')?.focus();
+  },
+
+  selectClassGroupSchool(schoolId) {
+    classGroupSchoolId = schoolId;
+    classGroupSearch = '';
+    this.renderCurrentView();
+  },
+
+  setClassGroupSearch(value) {
+    classGroupSearch = value;
+    const cursorPosition = $('#school-class-group-search')?.selectionStart ?? value.length;
+    this.renderCurrentView();
+    const updatedSearchInput = $('#school-class-group-search');
+    updatedSearchInput?.focus();
+    updatedSearchInput?.setSelectionRange(cursorPosition, cursorPosition);
+  },
+
+  async createSchoolClassGroup(event) {
+    event.preventDefault();
+    const schoolId = user?.role === 'diretor'
+      ? user.school_id
+      : (classGroupSchoolId || user?.school_id);
+    const classGroup = $('#school-class-group-name')?.value?.trim();
+    if (!schoolId || !classGroup) return showDialog('Selecione uma escola e informe o nome da turma.');
+
+    try {
+      await api.post('/api/school-class-groups', { schoolId, classGroup });
+      await this.refreshData();
+      this.renderCurrentView();
+    } catch (err) {
+      showDialog(err.message || 'Erro ao adicionar turma.');
+    }
+  },
+
+  async deleteSchoolClassGroup(classGroupId, classGroupName) {
+    const confirmed = await showDialog(
+      `Excluir a turma "${classGroupName}" do catálogo? Os horários antigos serão mantidos e os vínculos com professores serão removidos.`,
+      { confirm: true, title: 'Excluir turma' }
+    );
+    if (!confirmed) return;
+
+    try {
+      await api.delete(`/api/school-class-groups/${classGroupId}`);
+      await this.refreshData();
+      this.renderCurrentView();
+    } catch (err) {
+      showDialog(err.message || 'Erro ao excluir turma.');
+    }
+  },
+
+  async setClassGroupTeacher(classGroupId, teacherId, isAssigned) {
+    try {
+      if (isAssigned) {
+        await api.post(`/api/school-class-groups/${classGroupId}/teachers`, { teacherId });
+      } else {
+        await api.delete(`/api/school-class-groups/${classGroupId}/teachers/${teacherId}`);
+      }
+      await this.refreshData();
+      this.renderCurrentView();
+    } catch (err) {
+      await this.refreshData();
+      this.renderCurrentView();
+      showDialog(err.message || 'Erro ao atualizar vínculo da turma.');
+    }
   },
 
   async deleteUser(uid, name, email) {

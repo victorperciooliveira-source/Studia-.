@@ -1980,6 +1980,157 @@ app.delete('/api/school-subjects/:id/teachers/:teacherId', async (req, res) => {
   res.json({ status: 'success' });
 });
 
+// School class-group catalog and teacher assignments
+app.get('/api/school-class-groups', async (req, res) => {
+  const userInfo = await requireRole(req, res, ['dev', 'diretor', 'teacher']);
+  if (!userInfo) return;
+
+  const requestedSchoolId = typeof req.query.schoolId === 'string' ? req.query.schoolId : undefined;
+  if (userInfo.role === 'diretor' && !userInfo.school_id) {
+    return res.status(403).json({ error: 'Sua conta não está associada a uma escola' });
+  }
+  if (userInfo.role === 'diretor' && requestedSchoolId && requestedSchoolId !== userInfo.school_id) {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+
+  const schoolId = userInfo.role === 'diretor' ? userInfo.school_id : (requestedSchoolId || userInfo.school_id);
+  let query = supabase
+    .from('school_class_groups')
+    .select('id,school_id,class_group')
+    .order('class_group', { ascending: true });
+  if (schoolId) query = query.eq('school_id', schoolId);
+  const { data: groups, error } = await query;
+  if (error) return res.status(500).json({ error: 'Erro ao buscar turmas da escola' });
+
+  const groupNames = (groups || []).map(group => group.class_group);
+  let assignments: any[] = [];
+  if (schoolId && groupNames.length) {
+    const { data: teacherAssignments, error: assignmentError } = await supabase
+      .from('teacher_class_groups')
+      .select('teacher_id,class_group')
+      .eq('school_id', schoolId);
+    if (assignmentError) return res.status(500).json({ error: 'Erro ao buscar professores das turmas' });
+    assignments = teacherAssignments || [];
+  }
+
+  res.json((groups || []).map(group => ({
+    id: group.id,
+    school_id: group.school_id,
+    classGroup: group.class_group,
+    teacherIds: assignments
+      .filter(item => String(item.class_group).toLocaleLowerCase() === String(group.class_group).toLocaleLowerCase())
+      .map(item => item.teacher_id)
+  })));
+});
+
+app.post('/api/school-class-groups', async (req, res) => {
+  const userInfo = await requireRole(req, res, ['dev', 'diretor']);
+  if (!userInfo) return;
+
+  const classGroup = sanitizeString(req.body.classGroup);
+  const requestedSchoolId = typeof req.body.schoolId === 'string' ? req.body.schoolId : undefined;
+  const schoolId = userInfo.role === 'diretor' ? userInfo.school_id : requestedSchoolId;
+  if (!schoolId || !classGroup) return res.status(400).json({ error: 'Escola e turma são obrigatórias' });
+
+  const { data: existing, error: findError } = await supabase
+    .from('school_class_groups')
+    .select('id')
+    .eq('school_id', schoolId)
+    .ilike('class_group', classGroup)
+    .maybeSingle();
+  if (findError) return res.status(500).json({ error: 'Erro ao verificar turma' });
+  if (existing) return res.status(409).json({ error: 'Essa turma já está cadastrada na escola' });
+
+  const { data, error } = await supabase
+    .from('school_class_groups')
+    .insert({ school_id: schoolId, class_group: classGroup })
+    .select('id,school_id,class_group')
+    .single();
+  if (error) return res.status(500).json({ error: `Erro ao cadastrar turma: ${error.message}` });
+  res.json({ id: data.id, school_id: data.school_id, classGroup: data.class_group, teacherIds: [] });
+});
+
+app.delete('/api/school-class-groups/:id', async (req, res) => {
+  const userInfo = await requireRole(req, res, ['dev', 'diretor']);
+  if (!userInfo) return;
+
+  const { data: group, error: findError } = await supabase
+    .from('school_class_groups')
+    .select('id,school_id,class_group')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (findError) return res.status(500).json({ error: 'Erro ao verificar turma' });
+  if (!group) return res.status(404).json({ error: 'Turma não encontrada' });
+  if (userInfo.role === 'diretor' && group.school_id !== userInfo.school_id) {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+
+  await supabase
+    .from('teacher_class_groups')
+    .delete()
+    .eq('school_id', group.school_id)
+    .ilike('class_group', group.class_group);
+  const { error } = await supabase
+    .from('school_class_groups')
+    .delete()
+    .eq('id', group.id);
+  if (error) return res.status(500).json({ error: 'Erro ao excluir turma' });
+  res.json({ status: 'success' });
+});
+
+app.post('/api/school-class-groups/:id/teachers', async (req, res) => {
+  const userInfo = await requireSubjectManager(req, res);
+  if (!userInfo) return;
+
+  const teacherId = typeof req.body.teacherId === 'string' ? req.body.teacherId : '';
+  const { data: group, error: groupError } = await supabase
+    .from('school_class_groups')
+    .select('id,school_id,class_group')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (groupError) return res.status(500).json({ error: 'Erro ao verificar turma' });
+  if (!group) return res.status(404).json({ error: 'Turma não encontrada' });
+  if (userInfo.role === 'diretor' && group.school_id !== userInfo.school_id) {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+  const teacher = await getUserFromDB(teacherId);
+  if (!teacher || teacher.role !== 'teacher' || teacher.school_id !== group.school_id) {
+    return res.status(400).json({ error: 'Selecione um professor da mesma escola' });
+  }
+
+  const { error } = await supabase.from('teacher_class_groups').upsert(
+    { teacher_id: teacherId, school_id: group.school_id, class_group: group.class_group },
+    { onConflict: 'school_id,teacher_id,class_group', ignoreDuplicates: true }
+  );
+  if (error) return res.status(500).json({ error: 'Erro ao vincular professor à turma' });
+  res.json({ status: 'success', classGroup: group.class_group });
+});
+
+app.delete('/api/school-class-groups/:id/teachers/:teacherId', async (req, res) => {
+  const userInfo = await requireSubjectManager(req, res);
+  if (!userInfo) return;
+
+  const { data: group, error: groupError } = await supabase
+    .from('school_class_groups')
+    .select('id,school_id,class_group')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (groupError) return res.status(500).json({ error: 'Erro ao verificar turma' });
+  if (!group) return res.status(404).json({ error: 'Turma não encontrada' });
+  if (userInfo.role === 'diretor' && group.school_id !== userInfo.school_id) {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+
+  const { error } = await supabase
+    .from('teacher_class_groups')
+    .delete()
+    .eq('school_id', group.school_id)
+    .eq('teacher_id', req.params.teacherId)
+    .ilike('class_group', group.class_group);
+  if (error) return res.status(500).json({ error: 'Erro ao desvincular professor da turma' });
+  res.json({ status: 'success' });
+});
+
 app.get('/api/teachers/:uid/class-groups', async (req, res) => {
   const userInfo = await validateUserPermission(req);
   if (!userInfo) return res.status(401).json({ error: 'Não autorizado' });
