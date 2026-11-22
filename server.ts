@@ -1441,6 +1441,15 @@ app.post('/api/schedules/recurring', async (req, res) => {
     return res.status(403).json({ error: 'O horário deve pertencer a um professor da sua escola.' });
   }
 
+  const { data: catalogGroup, error: classGroupError } = await supabase
+    .from('school_class_groups')
+    .select('id')
+    .eq('school_id', userInfo.school_id)
+    .ilike('class_group', classGroup)
+    .maybeSingle();
+  if (classGroupError) return res.status(500).json({ error: 'Erro ao verificar a turma do horário.' });
+  if (!catalogGroup) return res.status(400).json({ error: 'Selecione uma turma cadastrada na escola.' });
+
   const { data: selectedPeriods, error: periodsError } = await supabase
     .from('school_periods')
     .select('period_number,name,start_time,end_time')

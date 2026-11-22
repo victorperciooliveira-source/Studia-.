@@ -123,6 +123,7 @@ let reportWeek = 'all';
 let workloadWeek = '';
 let reportTurno = 'todos';
 let scheduleListTurno = 'todos';
+let scheduleListClassGroup = 'todos';
 let teacherTurno = 'todos';
 let teacherScheduleDate = '';
 let teacherDashboardStatus = 'idle';
@@ -1440,6 +1441,16 @@ const getAssignedSubjectsForTeacher = (teacherId) => {
     .map(subject => subject.subject);
 };
 
+const getClassGroupsForTeacher = (teacherId) => {
+  const teacher = teachers.find(item => item.uid === teacherId);
+  const schoolId = teacher?.school_id || (user?.role === 'diretor' ? user.school_id : '');
+  if (!schoolId) return [];
+  return schoolClassGroups
+    .filter(group => group.school_id === schoolId)
+    .map(group => group.classGroup)
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+};
+
 const SchedulePeriodOptions = turno => {
   const periods = schoolPeriods.filter(period => period.turno === turno);
   return periods.length ? `
@@ -1468,14 +1479,17 @@ const CreateModal = () => `
           </label>
           <label class="space-y-1">
             <span class="text-xs font-bold uppercase text-slate-500">Turma</span>
-            <input type="text" id="form-class-group" placeholder="Ex: 9A, 3BI" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
+            <select id="form-class-group" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
+              <option value="">Selecione a turma</option>
+              ${getClassGroupsForTeacher('').map(classGroup => `<option value="${escapeHtml(classGroup)}">${escapeHtml(classGroup)}</option>`).join('')}
+            </select>
           </label>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label class="space-y-1">
             <span class="text-xs font-bold uppercase text-slate-500">Professor</span>
             <input type="search" id="form-teacher-search" oninput="actions.filterScheduleTeachers(this.value)" placeholder="Pesquisar professor por nome ou e-mail" autocomplete="off" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900">
-            <select id="form-teacher" onchange="actions.updateScheduleSubjectOptions(this.value)" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
+            <select id="form-teacher" onchange="actions.updateScheduleSubjectOptions(this.value); actions.updateScheduleClassGroupOptions(this.value)" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
               <option value="">Selecione o Professor</option>
               ${teachers.map(t => `<option value="${t.uid}" data-search="${escapeHtml(`${t.displayName || ''} ${t.email || ''}`.toLowerCase())}">${t.displayName}</option>`).join('')}
             </select>
@@ -1600,7 +1614,9 @@ const EditModal = () => `
           </div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Turma</label>
-            <input type="text" id="edit-form-class-group" placeholder="Turma (ex: 9A, 3BI)" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
+            <select id="edit-form-class-group" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
+              <option value="">Selecione a turma</option>
+            </select>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-4">
@@ -1633,7 +1649,7 @@ const EditModal = () => `
         </div>
         <div>
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Professor</label>
-          <select id="edit-form-teacher" onchange="actions.updateScheduleSubjectOptions(this.value, '', 'edit-form')" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
+          <select id="edit-form-teacher" onchange="actions.updateScheduleSubjectOptions(this.value, '', 'edit-form'); actions.updateScheduleClassGroupOptions(this.value, '', 'edit-form')" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
             <option value="">Selecione o Professor</option>
             ${teachers.map(t => `<option value="${t.uid}">${t.displayName}</option>`).join('')}
           </select>
@@ -3002,6 +3018,17 @@ const HorariosTab = () => `
     <h3 class="text-2xl font-black text-slate-900">Grade de Horários</h3>
     <div class="flex flex-wrap items-center gap-3 print:hidden">
       <label class="flex items-center gap-2 text-xs font-bold uppercase text-slate-500">
+        Turma
+        <select onchange="actions.setScheduleListClassGroup(this.value)" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold normal-case text-slate-700">
+          <option value="todos" ${scheduleListClassGroup === 'todos' ? 'selected' : ''}>Todas</option>
+          ${[...new Set(schoolClassGroups
+            .filter(group => user?.role !== 'diretor' || group.school_id === user.school_id)
+            .map(group => group.classGroup))]
+            .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+            .map(classGroup => `<option value="${escapeHtml(classGroup)}" ${scheduleListClassGroup === classGroup ? 'selected' : ''}>${escapeHtml(classGroup)}</option>`).join('')}
+        </select>
+      </label>
+      <label class="flex items-center gap-2 text-xs font-bold uppercase text-slate-500">
         Turno
         <select onchange="actions.setScheduleListTurno(this.value)" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold normal-case text-slate-700">
           <option value="todos" ${scheduleListTurno === 'todos' ? 'selected' : ''}>Todos</option>
@@ -3024,6 +3051,7 @@ const HorariosTab = () => `
       <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b">
         <tr>
           <th class="px-8 py-5">Matéria</th>
+          <th class="px-8 py-5">Turma</th>
           <th class="px-8 py-5">Turno</th>
           <th class="px-8 py-5">Horário / Data</th>
           <th class="px-8 py-5">Professor</th>
@@ -3032,9 +3060,14 @@ const HorariosTab = () => `
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-50">
-        ${filterSchedulesByTurno(schedules, scheduleListTurno).map(s => `
+        ${filterSchedulesByTurno(schedules, scheduleListTurno)
+          .filter(s => scheduleListClassGroup === 'todos' || s.classGroup === scheduleListClassGroup)
+          .map(s => `
           <tr class="hover:bg-slate-50 transition-all">
             <td class="px-8 py-5 font-bold">${s.subject}</td>
+            <td class="px-8 py-5">
+              ${s.classGroup ? `<span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">${escapeHtml(s.classGroup)}</span>` : '<span class="text-xs font-semibold text-slate-400">Não informada</span>'}
+            </td>
             <td class="px-8 py-5 text-xs font-black uppercase text-slate-500">${TURNO_LABELS[getScheduleTurno(s)]}</td>
             <td class="px-8 py-5">
               <div class="text-sm font-bold">${s.startTime}</div>
@@ -3696,6 +3729,11 @@ const actions = {
     this.renderCurrentView();
   },
 
+  setScheduleListClassGroup(classGroup) {
+    scheduleListClassGroup = classGroup;
+    this.renderCurrentView();
+  },
+
   setWorkloadWeek(week) {
     if (!getWeeksList().includes(week)) return;
     workloadWeek = week;
@@ -4042,6 +4080,7 @@ const actions = {
     formFields.teacher.value = s.teacherId || '';
     formFields.status.value = s.status || 'pending';
     this.updateScheduleSubjectOptions(s.teacherId || '', s.subject || '', 'edit-form');
+    this.updateScheduleClassGroupOptions(s.teacherId || '', s.classGroup || '', 'edit-form');
     modal.classList.remove('hidden');
     formFields.subject.focus();
     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -4074,6 +4113,19 @@ const actions = {
     const options = getAssignedSubjectsForTeacher(teacherId);
     subjectOptions.innerHTML = options.map(subject => `<option value="${subject}"></option>`).join('');
     subjectInput.value = selectedSubject || '';
+  },
+
+  updateScheduleClassGroupOptions(teacherId, selectedClassGroup = '', prefix = 'form') {
+    const classGroupSelect = $(`#${prefix}-class-group`);
+    if (!classGroupSelect) return;
+    const options = getClassGroupsForTeacher(teacherId);
+    classGroupSelect.innerHTML = `
+      <option value="">Selecione a turma</option>
+      ${options.map(classGroup => `<option value="${escapeHtml(classGroup)}">${escapeHtml(classGroup)}</option>`).join('')}
+    `;
+    if (selectedClassGroup && options.some(classGroup => classGroup === selectedClassGroup)) {
+      classGroupSelect.value = selectedClassGroup;
+    }
   },
 
   async confirmDeleteSchedule() {
