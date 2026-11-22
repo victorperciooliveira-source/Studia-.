@@ -2498,7 +2498,7 @@ const TurmasEscolaTab = ({ viewerRole }) => {
               ${groups.map(group => {
                 const assignedTeachers = schoolTeachers.filter(teacher => (group.teacherIds || []).includes(teacher.uid));
                 const availableTeachers = schoolTeachers.filter(teacher => !(group.teacherIds || []).includes(teacher.uid));
-                const expanded = selectedClassGroupId === group.id;
+                const expanded = String(selectedClassGroupId) === String(group.id);
 
                 const teacherRow = (teacher, assigned) => `
                   <label class="flex cursor-pointer items-center gap-3 rounded-xl border ${assigned ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'} px-3 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:border-blue-300">
@@ -4684,7 +4684,8 @@ const actions = {
   },
 
   toggleClassGroupDetails(classGroupId) {
-    selectedClassGroupId = selectedClassGroupId === classGroupId ? null : classGroupId;
+    const normalizedId = String(classGroupId);
+    selectedClassGroupId = String(selectedClassGroupId) === normalizedId ? null : normalizedId;
     this.renderCurrentView();
   },
 
