@@ -628,15 +628,24 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
     tdSize = "text-[16.5px]";
     rowClass = "h-16";
   }
+
+  if (model === 'prof_turma') {
+    cardStyle = "font-size: 7px; padding: 0.25rem;";
+    headerSize = "text-[8px]";
+    subTitleSize = "text-[6px]";
+    thSize = "text-[6px]";
+    tdSize = "text-[6.5px]";
+    rowClass = "h-4";
+  }
   
   const distinctAnos = [...new Set(weekSchedules.map(s => s.classGroup).filter(Boolean))];
   const anosSuffix = distinctAnos.length ? ` (${distinctAnos.join(', ')})` : '';
 
   return `
-    <div class="bg-white border border-[#cbd5e1] rounded-md text-slate-800 shadow-none flex flex-col justify-between break-inside-avoid text-xs w-full min-h-[285px]" style="${cardStyle}">
+    <div class="bg-white border border-[#cbd5e1] rounded-md text-slate-800 shadow-none flex flex-col justify-between break-inside-avoid text-xs w-full ${model === 'prof_turma' ? 'min-h-[118px]' : 'min-h-[285px]'}" style="${cardStyle}">
       <div class="mb-1.5 flex flex-wrap justify-between items-center gap-x-2 gap-y-0.5 bg-slate-100 px-2 py-1.5 rounded-sm">
-        <span class="min-w-0 flex-1 font-extrabold uppercase text-slate-900 whitespace-normal break-words ${headerSize}">${teacher.displayName}${anosSuffix}</span>
-        <span title="${teacher.subject || 'Professor'}" class="shrink-0 ${subTitleSize} text-[#5B99C2] font-extrabold uppercase tracking-tight whitespace-normal break-words">${abbreviateReportSubject(teacher.subject || 'Professor')}</span>
+        <span class="min-w-0 flex-1 font-extrabold uppercase text-slate-900 whitespace-normal break-words ${headerSize}">${teacher.displayName}${model === 'prof_turma' ? '' : anosSuffix}</span>
+        ${model === 'prof_turma' ? '' : `<span title="${teacher.subject || 'Professor'}" class="shrink-0 ${subTitleSize} text-[#5B99C2] font-extrabold uppercase tracking-tight whitespace-normal break-words">${abbreviateReportSubject(teacher.subject || 'Professor')}</span>`}
       </div>
       <table class="w-full text-center border-collapse table-fixed">
         <thead>
@@ -653,7 +662,7 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
                 const entries = grid[slot][day];
                 const cellText = entries.map(entry => entry.text).join(' / ') || '------';
                 return `<td title="${escapeHtml(cellText)}" class="border border-slate-300 ${tdSize} py-0.5 px-1 whitespace-normal break-words ${entries.length ? 'font-black text-slate-900' : 'text-slate-400'}">${entries.length ? entries.map(entry => entry.isHAF
-                  ? '<span class="inline-flex rounded border border-blue-300 bg-blue-50 px-1 text-blue-800">Hora-atividade</span>'
+                  ? (model === 'prof_turma' ? '<span class="text-slate-900">HAF</span>' : '<span class="inline-flex rounded border border-blue-300 bg-blue-50 px-1 text-blue-800">Hora-atividade</span>')
                   : `<span>${escapeHtml(abbreviateReportEntry(entry.text))}</span>`
                 ).join(' / ') : '------'}</td>`;
               }).join('')}
@@ -3434,7 +3443,9 @@ const RelatoriosTab = () => {
 
   // Dynamic Grid classes based on card size selection
   let gridColsClass = "grid grid-cols-1 sm:grid-cols-2 gap-3.5 print:grid-cols-2 print:gap-3 justify-center";
-  if (reportCardSize === 'small') {
+  if (reportModel === 'prof_turma') {
+    gridColsClass = "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 print:grid-cols-5 print:gap-1 justify-center";
+  } else if (reportCardSize === 'small') {
     gridColsClass = "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 print:grid-cols-5 print:gap-1 justify-center";
   } else if (reportCardSize === 'medium') {
     gridColsClass = "grid grid-cols-1 sm:grid-cols-2 gap-3.5 print:grid-cols-2 print:gap-3 justify-center";
@@ -5206,7 +5217,9 @@ const actions = {
       esticado: 2,
       super_esticado: 1
     };
-    const itemsPerPage = itemsPerPageMap[reportCardSize] || 4;
+    const itemsPerPage = !isTurma && reportModel === 'prof_turma'
+      ? 15
+      : (itemsPerPageMap[reportCardSize] || 4);
 
     const chunks = [];
     for (let i = 0; i < items.length; i += itemsPerPage) {
@@ -5223,7 +5236,9 @@ const actions = {
     pdfContainer.style.backgroundColor = '#ffffff';
 
     let gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
-    if (reportCardSize === 'small') {
+    if (!isTurma && reportModel === 'prof_turma') {
+      gridColsClass = "grid grid-cols-5 gap-2 justify-center w-full";
+    } else if (reportCardSize === 'small') {
       gridColsClass = "grid grid-cols-4 gap-2 justify-center w-full";
     } else if (reportCardSize === 'medium') {
       gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
