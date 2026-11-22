@@ -42,10 +42,28 @@ const Logo = (width = 180, height = 50) => `
 const render = (template) => {
   const app = $('#app');
   if (app) {
+    const windowX = window.scrollX;
+    const windowY = window.scrollY;
+    const scrollContainers = Array.from(document.querySelectorAll('[class*="overflow-y-auto"]'))
+      .map(element => ({ className: element.className, top: element.scrollTop, left: element.scrollLeft }))
+      .filter(item => item.top > 0 || item.left > 0);
+
     app.innerHTML = template;
     if (typeof lucide !== 'undefined') {
       lucide.createIcons();
     }
+
+    requestAnimationFrame(() => {
+      window.scrollTo(windowX, windowY);
+      const restoredContainers = Array.from(document.querySelectorAll('[class*="overflow-y-auto"]'));
+      scrollContainers.forEach((saved, index) => {
+        const element = restoredContainers[index];
+        if (element) {
+          element.scrollTop = saved.top;
+          element.scrollLeft = saved.left;
+        }
+      });
+    });
   }
 };
 
@@ -69,6 +87,11 @@ const showDialog = (message, { confirm = false, title = 'Studia' } = {}) => new 
   overlay.querySelector('[data-dialog-ok]').addEventListener('click', () => close(true));
   overlay.querySelector('[data-dialog-cancel]')?.addEventListener('click', () => close(false));
   overlay.addEventListener('click', (event) => { if (event.target === overlay) close(false); });
+  overlay.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    close(true);
+  });
   document.body.appendChild(overlay);
   overlay.querySelector('[data-dialog-ok]').focus();
 });
@@ -5773,6 +5796,27 @@ const reportFrontendError = eventType => {
 
 window.addEventListener('error', () => reportFrontendError('error'));
 window.addEventListener('unhandledrejection', () => reportFrontendError('unhandledrejection'));
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' || event.isComposing) return;
+
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (['checkbox', 'radio', 'button', 'submit', 'hidden', 'file'].includes(target.type)) return;
+
+  const form = target.closest('form');
+  if (form) {
+    event.preventDefault();
+    if (typeof form.requestSubmit === 'function') form.requestSubmit();
+    else form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    return;
+  }
+
+  if (target.id === 'auth-password' || target.id === 'auth-email') {
+    event.preventDefault();
+    window.actions.login();
+  }
+});
 
 window.actions = actions;
 
