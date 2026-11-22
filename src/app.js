@@ -1478,8 +1478,18 @@ const getClassGroupsForTeacher = (teacherId) => {
   const teacher = teachers.find(item => item.uid === teacherId);
   const schoolId = teacher?.school_id || (user?.role === 'diretor' ? user.school_id : '');
   if (!schoolId) return [];
-  return schoolClassGroups
-    .filter(group => group.school_id === schoolId)
+
+  const schoolGroups = schoolClassGroups
+    .filter(group => group.school_id === schoolId);
+
+  if (!teacherId) {
+    return schoolGroups
+      .map(group => group.classGroup)
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }
+
+  return schoolGroups
+    .filter(group => (group.teacherIds || []).includes(teacherId))
     .map(group => group.classGroup)
     .sort((a, b) => a.localeCompare(b, 'pt-BR'));
 };
@@ -1516,6 +1526,7 @@ const CreateModal = () => `
               <option value="">Selecione a turma</option>
               ${getClassGroupsForTeacher('').map(classGroup => `<option value="${escapeHtml(classGroup)}">${escapeHtml(classGroup)}</option>`).join('')}
             </select>
+            <p id="form-class-group-status" class="hidden text-xs font-medium text-slate-500"></p>
           </label>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1650,6 +1661,7 @@ const EditModal = () => `
             <select id="edit-form-class-group" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
               <option value="">Selecione a turma</option>
             </select>
+            <p id="edit-form-class-group-status" class="mt-1 hidden text-xs font-medium text-slate-500"></p>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-4">
@@ -4181,6 +4193,20 @@ const actions = {
     `;
     if (selectedClassGroup && options.some(classGroup => classGroup === selectedClassGroup)) {
       classGroupSelect.value = selectedClassGroup;
+    }
+
+    const status = $(`#${prefix}-class-group-status`);
+    if (status) {
+      if (!teacherId) {
+        status.classList.add('hidden');
+        status.textContent = '';
+      } else if (options.length) {
+        status.textContent = `Turmas vinculadas: ${options.join(', ')}`;
+        status.classList.remove('hidden');
+      } else {
+        status.textContent = 'Este professor não está vinculado a nenhuma turma.';
+        status.classList.remove('hidden');
+      }
     }
   },
 
