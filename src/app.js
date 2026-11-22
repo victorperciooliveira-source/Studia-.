@@ -98,6 +98,7 @@ let schoolSubjects = [];
 let schoolClassGroups = [];
 let classGroupSchoolId = '';
 let classGroupSearch = '';
+let selectedClassGroupId = null;
 let schoolPeriods = [];
 let schoolPeriodsError = '';
 let periodAdminTurno = 'manha';
@@ -2494,30 +2495,51 @@ const TurmasEscolaTab = ({ viewerRole }) => {
             <p class="rounded-xl bg-slate-50 p-5 text-sm font-semibold text-slate-500">${classGroupSearch ? 'Nenhuma turma corresponde à pesquisa.' : 'Nenhuma turma cadastrada nesta escola.'}</p>
           ` : `
             <div class="grid gap-4 lg:grid-cols-2">
-              ${groups.map(group => `
-                <article class="rounded-2xl border border-slate-200 p-5">
-                  <div class="flex items-start justify-between gap-3">
-                    <div>
-                      <h4 class="text-lg font-black text-slate-900">${escapeHtml(group.classGroup)}</h4>
-                      <p class="mt-1 text-xs font-bold uppercase tracking-wide text-slate-400">${(group.teacherIds || []).length} professor(es)</p>
+              ${groups.map(group => {
+                const assignedTeachers = schoolTeachers.filter(teacher => (group.teacherIds || []).includes(teacher.uid));
+                const availableTeachers = schoolTeachers.filter(teacher => !(group.teacherIds || []).includes(teacher.uid));
+                const expanded = selectedClassGroupId === group.id;
+
+                const teacherRow = (teacher, assigned) => `
+                  <label class="flex cursor-pointer items-center gap-3 rounded-xl border ${assigned ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'} px-3 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:border-blue-300">
+                    <input type="checkbox" ${assigned ? 'checked' : ''} onchange="actions.setClassGroupTeacher('${group.id}', '${teacher.uid}', this.checked)" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                    <span class="min-w-0 truncate">${escapeHtml(teacher.displayName || teacher.email || 'Professor')}</span>
+                  </label>
+                `;
+
+                return `
+                  <article class="overflow-hidden rounded-2xl border ${expanded ? 'border-blue-300 shadow-sm' : 'border-slate-200'} bg-white">
+                    <div class="flex items-center gap-3 p-5">
+                      <button type="button" onclick="actions.toggleClassGroupDetails('${group.id}')" class="flex min-w-0 flex-1 items-center justify-between gap-3 text-left" aria-expanded="${expanded}">
+                        <div>
+                          <h4 class="text-lg font-black text-slate-900">${escapeHtml(group.classGroup)}</h4>
+                          <p class="mt-1 text-xs font-bold uppercase tracking-wide ${assignedTeachers.length ? 'text-emerald-600' : 'text-slate-400'}">${assignedTeachers.length} vinculado(s) · ${availableTeachers.length} disponível(is)</p>
+                        </div>
+                        <i data-lucide="${expanded ? 'chevron-up' : 'chevron-down'}" class="h-5 w-5 shrink-0 text-slate-400"></i>
+                      </button>
+                      <button type="button" onclick="event.stopPropagation(); actions.deleteSchoolClassGroup('${group.id}', '${escapeHtml(group.classGroup).replace(/'/g, "\\'")}')" class="rounded-lg border border-rose-200 p-2 text-rose-600 hover:bg-rose-50" title="Excluir turma" aria-label="Excluir turma ${escapeHtml(group.classGroup)}">
+                        <i data-lucide="trash-2" class="h-4 w-4"></i>
+                      </button>
                     </div>
-                    <button type="button" onclick="actions.deleteSchoolClassGroup('${group.id}', '${escapeHtml(group.classGroup).replace(/'/g, "\\'")}')" class="rounded-lg border border-rose-200 p-2 text-rose-600 hover:bg-rose-50" title="Excluir turma" aria-label="Excluir turma ${escapeHtml(group.classGroup)}">
-                      <i data-lucide="trash-2" class="h-4 w-4"></i>
-                    </button>
-                  </div>
-                  <div class="mt-4 space-y-2">
-                    ${schoolTeachers.length ? schoolTeachers.map(teacher => {
-                      const assigned = (group.teacherIds || []).includes(teacher.uid);
-                      return `
-                        <label class="flex cursor-pointer items-center gap-3 rounded-xl border ${assigned ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-white'} px-3 py-2.5 text-sm font-semibold text-slate-700">
-                          <input type="checkbox" ${assigned ? 'checked' : ''} onchange="actions.setClassGroupTeacher('${group.id}', '${teacher.uid}', this.checked)" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
-                          <span>${escapeHtml(teacher.displayName || teacher.email || 'Professor')}</span>
-                        </label>
-                      `;
-                    }).join('') : '<p class="rounded-xl bg-slate-50 p-3 text-sm font-medium text-slate-500">Cadastre ou associe professores a esta escola.</p>'}
-                  </div>
-                </article>
-              `).join('')}
+                    ${expanded ? `
+                      <div class="grid gap-4 border-t border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
+                        <section>
+                          <h5 class="mb-2 text-[10px] font-black uppercase tracking-wider text-emerald-700">Já vinculados</h5>
+                          <div class="space-y-2">
+                            ${assignedTeachers.length ? assignedTeachers.map(teacher => teacherRow(teacher, true)).join('') : '<p class="rounded-xl border border-dashed border-slate-200 bg-white p-3 text-xs font-medium text-slate-500">Nenhum professor vinculado.</p>'}
+                          </div>
+                        </section>
+                        <section>
+                          <h5 class="mb-2 text-[10px] font-black uppercase tracking-wider text-slate-500">Não vinculados</h5>
+                          <div class="space-y-2">
+                            ${availableTeachers.length ? availableTeachers.map(teacher => teacherRow(teacher, false)).join('') : '<p class="rounded-xl border border-dashed border-slate-200 bg-white p-3 text-xs font-medium text-slate-500">Todos os professores já estão vinculados.</p>'}
+                          </div>
+                        </section>
+                      </div>
+                    ` : ''}
+                  </article>
+                `;
+              }).join('')}
             </div>
           `}
         `}
@@ -4657,6 +4679,12 @@ const actions = {
   selectClassGroupSchool(schoolId) {
     classGroupSchoolId = schoolId;
     classGroupSearch = '';
+    selectedClassGroupId = null;
+    this.renderCurrentView();
+  },
+
+  toggleClassGroupDetails(classGroupId) {
+    selectedClassGroupId = selectedClassGroupId === classGroupId ? null : classGroupId;
     this.renderCurrentView();
   },
 
