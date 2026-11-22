@@ -1474,10 +1474,12 @@ const CreateModal = () => `
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label class="space-y-1">
             <span class="text-xs font-bold uppercase text-slate-500">Professor</span>
+            <input type="search" id="form-teacher-search" oninput="actions.filterScheduleTeachers(this.value)" placeholder="Pesquisar professor por nome ou e-mail" autocomplete="off" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900">
             <select id="form-teacher" onchange="actions.updateScheduleSubjectOptions(this.value)" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
               <option value="">Selecione o Professor</option>
-              ${teachers.map(t => `<option value="${t.uid}">${t.displayName}</option>`).join('')}
+              ${teachers.map(t => `<option value="${t.uid}" data-search="${escapeHtml(`${t.displayName || ''} ${t.email || ''}`.toLowerCase())}">${t.displayName}</option>`).join('')}
             </select>
+            <p id="form-teacher-search-status" class="hidden text-xs font-medium text-amber-700"></p>
           </label>
         </div>
         <label class="block space-y-1">
@@ -3871,9 +3873,42 @@ const actions = {
     const modal = $('#create-modal');
     if (modal) {
       modal.classList.remove('hidden');
+      const teacherSearch = $('#form-teacher-search');
+      if (teacherSearch) teacherSearch.value = '';
+      this.filterScheduleTeachers('');
       this.setScheduleCreateMode($('#form-schedule-mode')?.value || 'weekly');
       this.updateScheduleSubjectOptions($('#form-teacher')?.value || '');
       if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+  },
+
+  filterScheduleTeachers(searchTerm) {
+    const select = $('#form-teacher');
+    if (!select) return;
+    const normalizedTerm = String(searchTerm || '').trim().toLowerCase();
+    let matches = 0;
+
+    Array.from(select.options).forEach((option, index) => {
+      if (index === 0) {
+        option.hidden = false;
+        return;
+      }
+      const matchesSearch = !normalizedTerm || String(option.dataset.search || '').includes(normalizedTerm);
+      option.hidden = !matchesSearch;
+      if (matchesSearch) matches++;
+    });
+
+    const selectedOption = select.options[select.selectedIndex];
+    if (normalizedTerm && selectedOption && selectedOption.value && selectedOption.hidden) {
+      select.value = '';
+      this.updateScheduleSubjectOptions('');
+    }
+
+    const status = $('#form-teacher-search-status');
+    if (status) {
+      const showStatus = normalizedTerm && matches === 0;
+      status.classList.toggle('hidden', !showStatus);
+      status.textContent = showStatus ? 'Nenhum professor encontrado.' : '';
     }
   },
 
