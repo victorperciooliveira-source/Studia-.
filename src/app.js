@@ -2501,16 +2501,16 @@ const TurmasEscolaTab = ({ viewerRole }) => {
                 const expanded = String(selectedClassGroupId) === String(group.id);
 
                 const teacherRow = (teacher, assigned) => `
-                  <label class="flex cursor-pointer items-center gap-3 rounded-xl border ${assigned ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'} px-3 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:border-blue-300">
-                    <input type="checkbox" ${assigned ? 'checked' : ''} onchange="actions.setClassGroupTeacher('${group.id}', '${teacher.uid}', this.checked)" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                  <label onclick="event.stopPropagation()" class="flex cursor-pointer items-center gap-3 rounded-xl border ${assigned ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'} px-3 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:border-blue-300">
+                    <input type="checkbox" ${assigned ? 'checked' : ''} onchange="actions.setClassGroupTeacher('${group.id}', '${teacher.uid}', this.checked)" onclick="event.stopPropagation()" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
                     <span class="min-w-0 truncate">${escapeHtml(teacher.displayName || teacher.email || 'Professor')}</span>
                   </label>
                 `;
 
                 return `
-                  <article class="overflow-hidden rounded-2xl border ${expanded ? 'border-blue-300 shadow-sm' : 'border-slate-200'} bg-white">
+                  <article onclick="actions.toggleClassGroupDetails('${group.id}')" class="cursor-pointer overflow-hidden rounded-2xl border ${expanded ? 'border-blue-300 shadow-sm' : 'border-slate-200'} bg-white">
                     <div class="flex items-center gap-3 p-5">
-                      <button type="button" onclick="actions.toggleClassGroupDetails('${group.id}')" class="flex min-w-0 flex-1 items-center justify-between gap-3 text-left" aria-expanded="${expanded}">
+                      <button type="button" onclick="event.stopPropagation(); actions.toggleClassGroupDetails('${group.id}')" class="flex min-w-0 flex-1 items-center justify-between gap-3 text-left" aria-expanded="${expanded}">
                         <div>
                           <h4 class="text-lg font-black text-slate-900">${escapeHtml(group.classGroup)}</h4>
                           <p class="mt-1 text-xs font-bold uppercase tracking-wide ${assignedTeachers.length ? 'text-emerald-600' : 'text-slate-400'}">${assignedTeachers.length} vinculado(s) · ${availableTeachers.length} disponível(is)</p>
