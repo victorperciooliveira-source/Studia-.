@@ -630,7 +630,7 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
   }
 
   if (model === 'prof_turma') {
-    cardStyle = "font-size: 7px; padding: 0.25rem;";
+    cardStyle = "font-size: 7px; padding: 0.25rem; height: 160px; min-height: 160px; max-height: 160px; overflow: hidden;";
     headerSize = "text-[8px]";
     subTitleSize = "text-[6px]";
     thSize = "text-[6px]";
@@ -5292,18 +5292,21 @@ const actions = {
       }).join('');
 
       const pageFooter = `
-        <div class="border-t border-slate-100 mt-6 pt-3 flex justify-between text-[8px] text-slate-400 font-extrabold uppercase tracking-widest leading-none">
+        <div class="border-t border-slate-100 pt-3 flex justify-between text-[8px] text-slate-400 font-extrabold uppercase tracking-widest leading-none" style="position:absolute; left:10px; right:10px; bottom:18px;">
           <span>Página ${chunkIndex + 1} de ${chunks.length}</span>
           <span>Data de emissão: ${new Date().toLocaleDateString('pt-BR')}</span>
         </div>
       `;
 
       const breakStyle = chunkIndex === chunks.length - 1 ? '' : 'page-break-after: always;';
+      const pageGridStyle = !isTurma && reportModel === 'prof_turma'
+        ? 'grid-auto-rows: 160px; align-content: start;'
+        : '';
 
       pagesHtml += `
-        <div class="pdf-page bg-white" style="${breakStyle} width: 100%; box-sizing: border-box; padding-bottom: 20px;">
+        <div class="pdf-page bg-white" style="${breakStyle} width:100%; height:700px; overflow:hidden; position:relative; box-sizing:border-box; padding:0 0 20px;">
           ${pageHeader}
-          <div class="${gridColsClass}">
+          <div class="${gridColsClass}" style="${pageGridStyle}">
             ${cardsHtml}
           </div>
           ${pageFooter}
@@ -5330,7 +5333,7 @@ const actions = {
         backgroundColor: '#ffffff'
       },
       jsPDF:        { unit: 'in', format: 'a4', orientation: 'landscape' },
-      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+      pagebreak:    { mode: ['css', 'legacy'] }
     };
 
     const restoreOklch = prepareOklchForPrint(pdfContainer);
