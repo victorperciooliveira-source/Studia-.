@@ -142,6 +142,42 @@ const timeToMinutes = (value: string): number => {
 const doesTimeOverlap = (startA: string, endA: string, startB: string, endB: string): boolean =>
   timeToMinutes(startA) < timeToMinutes(endB) && timeToMinutes(endA) > timeToMinutes(startB);
 
+type ScheduleConflictCandidate = {
+  date: string;
+  startTime: string;
+  endTime: string;
+  teacherId?: string;
+  classGroup?: string;
+  room?: string;
+};
+
+const findScheduleConflict = async (
+  schoolId: string,
+  candidate: ScheduleConflictCandidate,
+  excludeId?: number
+) => {
+  let query = supabase
+    .from('schedules')
+    .select('id,date,starttime,endtime,teacherid,classgroup,room')
+    .eq('school_id', schoolId)
+    .eq('date', candidate.date);
+  if (excludeId !== undefined) query = query.neq('id', excludeId);
+  const { data, error } = await query;
+  if (error) return { error: 'Erro ao validar conflitos nos horários.' };
+
+  const conflict = (data || []).find(schedule => {
+    if (!isValidTime(schedule.starttime) || !isValidTime(schedule.endtime)) return false;
+    if (!doesTimeOverlap(candidate.startTime, candidate.endTime, schedule.starttime, schedule.endtime)) return false;
+    const sameTeacher = Boolean(candidate.teacherId) && schedule.teacherid === candidate.teacherId;
+    const sameClass = Boolean(candidate.classGroup) &&
+      String(schedule.classgroup || '').trim().toLocaleLowerCase() === String(candidate.classGroup).trim().toLocaleLowerCase();
+    const sameRoom = Boolean(candidate.room) &&
+      String(schedule.room || '').trim().toLocaleLowerCase() === String(candidate.room).trim().toLocaleLowerCase();
+    return sameTeacher || sameClass || sameRoom;
+  });
+  return conflict ? { conflict } : {};
+};
+
 const getTurnoByStartTime = (time: string): 'manha' | 'tarde' | 'noite' => {
   const minutes = timeToMinutes(time);
   if (minutes >= 5 * 60 && minutes < 12 * 60) return 'manha';
@@ -614,6 +650,9 @@ app.post('/api/schedules', async (req, res) => {
   if (!['manha', 'tarde', 'noite'].includes(turno)) {
     return res.status(400).json({ error: 'Informe um turno válido para o horário.' });
   }
+  if (!isValidDateOnly(date) || !isValidTime(startTime) || !isValidTime(endTime) || timeToMinutes(startTime) >= timeToMinutes(endTime)) {
+    return res.status(400).json({ error: 'Informe uma data e um intervalo de horários válido.' });
+  }
   if (userInfo.role === 'diretor' && school_id && school_id !== userInfo.school_id) {
     return res.status(403).json({ error: 'Acesso negado' });
   }
@@ -631,6 +670,22 @@ app.post('/api/schedules', async (req, res) => {
       : await ensureDefaultSchoolExists(school_id || undefined);
   } catch (error) {
     return res.status(400).json({ error: error instanceof Error ? error.message : 'Escola inválida' });
+  }
+
+  if (!finalSchoolId) return res.status(400).json({ error: 'Selecione uma escola válida.' });
+  const conflictResult = await findScheduleConflict(finalSchoolId, {
+    date,
+    startTime,
+    endTime,
+    teacherId,
+    classGroup,
+    room
+  });
+  if ('error' in conflictResult) return res.status(500).json({ error: conflictResult.error });
+  if ('conflict' in conflictResult) {
+    return res.status(409).json({
+      error: `Conflito de horário em ${date}, das ${startTime.slice(0, 5)} às ${endTime.slice(0, 5)}. Nenhuma aula foi criada.`
+    });
   }
 
   const { data, error } = await supabase.from('schedules').insert({
@@ -656,10 +711,15 @@ app.patch('/api/schedules/:id', async (req, res) => {
   if (req.body.status !== undefined && !['pending', 'confirmed', 'absent'].includes(req.body.status)) {
     return res.status(400).json({ error: 'Status de horário inválido.' });
   }
+  const { data: existingSchedule, error: existingError } = await supabase
+    .from('schedules')
+    .select('id,school_id,date,starttime,endtime,subject,room,teacherid,teachername,classgroup,turno,status')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (existingError) return res.status(500).json({ error: 'Erro ao verificar horário' });
+  if (!existingSchedule) return res.status(404).json({ error: 'Horário não encontrado para edição.' });
   if (userInfo.role === 'diretor') {
-    const { data: schedule, error: findError } = await supabase.from('schedules').select('school_id').eq('id', req.params.id).maybeSingle();
-    if (findError) return res.status(500).json({ error: 'Erro ao verificar horário' });
-    if (!schedule || schedule.school_id !== userInfo.school_id) return res.status(403).json({ error: 'Acesso negado' });
+    if (existingSchedule.school_id !== userInfo.school_id) return res.status(403).json({ error: 'Acesso negado' });
     if (req.body.teacherId) {
       const teacher = await getUserFromDB(req.body.teacherId);
       if (!teacher || teacher.role !== 'teacher' || teacher.school_id !== userInfo.school_id) {
@@ -673,6 +733,32 @@ app.patch('/api/schedules/:id', async (req, res) => {
     return res.status(400).json({ error: 'Informe um turno válido para o horário.' });
   }
   const onlyStatus = status !== undefined && date === undefined && startTime === undefined && endTime === undefined && subject === undefined && room === undefined && teacherId === undefined && teacherName === undefined && classGroup === undefined && turno === undefined;
+  if (!onlyStatus) {
+    const finalDate = date ?? existingSchedule.date;
+    const finalStartTime = startTime ?? existingSchedule.starttime;
+    const finalEndTime = endTime ?? existingSchedule.endtime;
+    const finalTeacherId = teacherId ?? existingSchedule.teacherid;
+    const finalClassGroup = classGroup ?? existingSchedule.classgroup;
+    const finalRoom = room ?? existingSchedule.room;
+    if (!isValidDateOnly(finalDate) || !isValidTime(finalStartTime) || !isValidTime(finalEndTime) ||
+        timeToMinutes(finalStartTime) >= timeToMinutes(finalEndTime)) {
+      return res.status(400).json({ error: 'Informe uma data e um intervalo de horários válido.' });
+    }
+    const conflictResult = await findScheduleConflict(existingSchedule.school_id, {
+      date: finalDate,
+      startTime: finalStartTime,
+      endTime: finalEndTime,
+      teacherId: finalTeacherId,
+      classGroup: finalClassGroup,
+      room: finalRoom
+    }, existingSchedule.id);
+    if ('error' in conflictResult) return res.status(500).json({ error: conflictResult.error });
+    if ('conflict' in conflictResult) {
+      return res.status(409).json({
+        error: `Conflito de horário em ${finalDate}, das ${finalStartTime.slice(0, 5)} às ${finalEndTime.slice(0, 5)}. Nenhuma alteração foi salva.`
+      });
+    }
+  }
   const updates = onlyStatus
     ? { status }
     : {
