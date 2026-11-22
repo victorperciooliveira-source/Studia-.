@@ -662,7 +662,7 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
                 const entries = grid[slot][day];
                 const cellText = entries.map(entry => entry.text).join(' / ') || '------';
                 return `<td title="${escapeHtml(cellText)}" class="border border-slate-300 ${tdSize} py-0.5 px-1 whitespace-normal break-words ${entries.length ? 'font-black text-slate-900' : 'text-slate-400'}">${entries.length ? entries.map(entry => entry.isHAF
-                  ? '<span class="inline-flex rounded border border-blue-300 bg-blue-50 px-1 text-blue-800">Hora-atividade</span>'
+                  ? '<span title="Hora-atividade" class="inline-flex max-w-full items-center justify-center whitespace-nowrap rounded-sm border border-blue-300 bg-blue-50 px-0.5 py-0 text-[6.5px] leading-tight text-blue-800">H. atividade</span>'
                   : `<span>${escapeHtml(abbreviateReportEntry(entry.text))}</span>`
                 ).join(' / ') : '------'}</td>`;
               }).join('')}
@@ -3047,9 +3047,9 @@ const HorariosTab = () => `
         </select>
       </label>
       ${user?.role === 'diretor' ? `
-        <button onclick="actions.deleteAllSchedules()" class="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-700 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50" ${filterSchedulesByTurno(schedules, scheduleListTurno).length ? '' : 'disabled'}>
+        <button onclick="actions.deleteAllSchedules()" class="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-700 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50" ${filterSchedulesByTurno(schedules, scheduleListTurno).filter(s => scheduleListClassGroup === 'todos' || s.classGroup === scheduleListClassGroup).length ? '' : 'disabled'}>
         <i data-lucide="trash-2" class="h-4 w-4"></i>
-        Remover ${scheduleListTurno === 'todos' ? 'todos' : `do turno da ${TURNO_LABELS[scheduleListTurno]}`}
+        Remover ${scheduleListClassGroup === 'todos' ? (scheduleListTurno === 'todos' ? 'todos' : `do turno da ${TURNO_LABELS[scheduleListTurno]}`) : `da turma ${scheduleListClassGroup}${scheduleListTurno === 'todos' ? '' : ` no turno da ${TURNO_LABELS[scheduleListTurno]}`}`}
         </button>
       ` : ''}
     </div>
@@ -4944,19 +4944,26 @@ const actions = {
   },
 
   async deleteAllSchedules() {
-    const visibleSchedules = filterSchedulesByTurno(schedules, scheduleListTurno);
+    const visibleSchedules = filterSchedulesByTurno(schedules, scheduleListTurno)
+      .filter(s => scheduleListClassGroup === 'todos' || s.classGroup === scheduleListClassGroup);
     if (visibleSchedules.length === 0) return;
 
-    const scope = scheduleListTurno === 'todos'
-      ? 'todos os horários da escola, de todos os turnos'
-      : `todos os horários da escola no turno da ${TURNO_LABELS[scheduleListTurno]}`;
+    const scopeClass = scheduleListClassGroup === 'todos'
+      ? 'todas as turmas'
+      : `a turma ${scheduleListClassGroup}`;
+    const scopeTurno = scheduleListTurno === 'todos'
+      ? 'todos os turnos'
+      : `o turno da ${TURNO_LABELS[scheduleListTurno]}`;
     const confirmed = await showDialog(
-      `Esta ação excluirá ${visibleSchedules.length} horário${visibleSchedules.length === 1 ? '' : 's'} (${scope}) e não poderá ser desfeita. Deseja continuar?`,
+      `Esta ação excluirá ${visibleSchedules.length} horário${visibleSchedules.length === 1 ? '' : 's'} de ${scopeClass}, em ${scopeTurno}, e não poderá ser desfeita. Deseja continuar?`,
       { confirm: true, title: 'Remover horários' }
     );
     if (!confirmed) return;
 
-    const query = scheduleListTurno === 'todos' ? '' : `?turno=${encodeURIComponent(scheduleListTurno)}`;
+    const params = new URLSearchParams();
+    if (scheduleListTurno !== 'todos') params.set('turno', scheduleListTurno);
+    if (scheduleListClassGroup !== 'todos') params.set('classGroup', scheduleListClassGroup);
+    const query = params.size ? `?${params.toString()}` : '';
     try {
       const result = await api.delete(`/api/schedules${query}`);
       await this.init();

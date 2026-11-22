@@ -794,11 +794,16 @@ app.delete('/api/schedules', async (req, res) => {
     return res.status(400).json({ error: 'Turno inválido.' });
   }
 
+  const classGroup = typeof req.query.classGroup === 'string'
+    ? req.query.classGroup.trim()
+    : '';
+
   let query = supabase
     .from('schedules')
     .delete({ count: 'exact' })
     .eq('school_id', userInfo.school_id);
   if (turno) query = query.eq('turno', String(turno));
+  if (classGroup) query = query.eq('classgroup', classGroup);
 
   const { error, count } = await query;
   if (error) return res.status(500).json({ error: 'Não foi possível remover os horários da escola.' });
