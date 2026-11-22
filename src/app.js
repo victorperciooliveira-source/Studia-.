@@ -630,12 +630,12 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
   }
 
   if (model === 'prof_turma') {
-    cardStyle = "font-size: 7px; padding: 0.25rem; height: 160px; min-height: 160px; max-height: 160px; overflow: hidden;";
-    headerSize = "text-[8px]";
-    subTitleSize = "text-[6px]";
-    thSize = "text-[6px]";
-    tdSize = "text-[6.5px]";
-    rowClass = "h-4";
+    cardStyle = "font-size: 9px; padding: 0.5rem; height: 240px; min-height: 240px; max-height: 240px; overflow: hidden;";
+    headerSize = "text-[10px]";
+    subTitleSize = "text-[8px]";
+    thSize = "text-[8px]";
+    tdSize = "text-[8.5px]";
+    rowClass = "h-8";
   }
   
   const distinctAnos = [...new Set(weekSchedules.map(s => s.classGroup).filter(Boolean))];
@@ -3444,7 +3444,7 @@ const RelatoriosTab = () => {
   // Dynamic Grid classes based on card size selection
   let gridColsClass = "grid grid-cols-1 sm:grid-cols-2 gap-3.5 print:grid-cols-2 print:gap-3 justify-center";
   if (reportModel === 'prof_turma') {
-    gridColsClass = "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 print:grid-cols-5 print:gap-1 justify-center";
+    gridColsClass = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 print:grid-cols-4 print:gap-2 justify-center";
   } else if (reportCardSize === 'small') {
     gridColsClass = "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 print:grid-cols-5 print:gap-1 justify-center";
   } else if (reportCardSize === 'medium') {
@@ -5218,7 +5218,7 @@ const actions = {
       super_esticado: 1
     };
     const itemsPerPage = !isTurma && reportModel === 'prof_turma'
-      ? 15
+      ? 8
       : (itemsPerPageMap[reportCardSize] || 4);
 
     const chunks = [];
@@ -5237,7 +5237,7 @@ const actions = {
 
     let gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
     if (!isTurma && reportModel === 'prof_turma') {
-      gridColsClass = "grid grid-cols-5 gap-2 justify-center w-full";
+      gridColsClass = "grid grid-cols-4 gap-3 justify-center w-full";
     } else if (reportCardSize === 'small') {
       gridColsClass = "grid grid-cols-4 gap-2 justify-center w-full";
     } else if (reportCardSize === 'medium') {
@@ -5300,7 +5300,7 @@ const actions = {
 
       const breakStyle = chunkIndex === chunks.length - 1 ? '' : 'page-break-after: always;';
       const pageGridStyle = !isTurma && reportModel === 'prof_turma'
-        ? 'grid-auto-rows: 160px; align-content: start;'
+        ? 'grid-auto-rows: 240px; align-content: start;'
         : '';
 
       pagesHtml += `
