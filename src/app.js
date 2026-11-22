@@ -1535,9 +1535,14 @@ const CreateModal = () => `
             <input type="search" id="form-teacher-search" oninput="actions.filterScheduleTeachers(this.value)" placeholder="Pesquisar professor por nome ou e-mail" autocomplete="off" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900">
             <select id="form-teacher" onchange="actions.updateScheduleSubjectOptions(this.value); actions.updateScheduleClassGroupOptions(this.value)" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
               <option value="">Selecione o Professor</option>
-              ${teachers.map(t => `<option value="${t.uid}" data-search="${escapeHtml(`${t.displayName || ''} ${t.email || ''}`.toLowerCase())}">${t.displayName}</option>`).join('')}
+              ${teachers.map(t => {
+                const teacherGroups = getClassGroupsForTeacher(t.uid);
+                const groupLabel = teacherGroups.length ? ` - ${teacherGroups.join(', ')}` : '';
+                return `<option value="${t.uid}" data-search="${escapeHtml(`${t.displayName || ''} ${t.email || ''}`.toLowerCase())}">${escapeHtml(t.displayName || 'Professor')}${escapeHtml(groupLabel)}</option>`;
+              }).join('')}
             </select>
             <p id="form-teacher-search-status" class="hidden text-xs font-medium text-amber-700"></p>
+            <p id="form-teacher-class-groups-status" class="hidden text-xs font-medium text-slate-500"></p>
           </label>
         </div>
         <label class="block space-y-1">
@@ -1696,8 +1701,13 @@ const EditModal = () => `
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Professor</label>
           <select id="edit-form-teacher" onchange="actions.updateScheduleSubjectOptions(this.value, '', 'edit-form'); actions.updateScheduleClassGroupOptions(this.value, '', 'edit-form')" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
             <option value="">Selecione o Professor</option>
-            ${teachers.map(t => `<option value="${t.uid}">${t.displayName}</option>`).join('')}
+            ${teachers.map(t => {
+              const teacherGroups = getClassGroupsForTeacher(t.uid);
+              const groupLabel = teacherGroups.length ? ` - ${teacherGroups.join(', ')}` : '';
+              return `<option value="${t.uid}">${escapeHtml(t.displayName || 'Professor')}${escapeHtml(groupLabel)}</option>`;
+            }).join('')}
           </select>
+          <p id="edit-form-teacher-class-groups-status" class="mt-1 hidden text-xs font-medium text-slate-500"></p>
         </div>
         <div>
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Status</label>
@@ -4193,6 +4203,20 @@ const actions = {
     `;
     if (selectedClassGroup && options.some(classGroup => classGroup === selectedClassGroup)) {
       classGroupSelect.value = selectedClassGroup;
+    }
+
+    const teacherStatus = $(`#${prefix}-teacher-class-groups-status`);
+    if (teacherStatus) {
+      if (!teacherId) {
+        teacherStatus.classList.add('hidden');
+        teacherStatus.textContent = '';
+      } else if (options.length) {
+        teacherStatus.textContent = `Turmas do professor: ${options.join(', ')}`;
+        teacherStatus.classList.remove('hidden');
+      } else {
+        teacherStatus.textContent = 'Este professor não está vinculado a nenhuma turma.';
+        teacherStatus.classList.remove('hidden');
+      }
     }
 
     const status = $(`#${prefix}-class-group-status`);
