@@ -662,7 +662,7 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
                 const entries = grid[slot][day];
                 const cellText = entries.map(entry => entry.text).join(' / ') || '------';
                 return `<td title="${escapeHtml(cellText)}" class="border border-slate-300 ${tdSize} py-0.5 px-1 whitespace-normal break-words ${entries.length ? 'font-black text-slate-900' : 'text-slate-400'}">${entries.length ? entries.map(entry => entry.isHAF
-                  ? (model === 'prof_turma' ? '<span class="text-slate-900">HAF</span>' : '<span class="inline-flex rounded border border-blue-300 bg-blue-50 px-1 text-blue-800">Hora-atividade</span>')
+                  ? '<span class="inline-flex rounded border border-blue-300 bg-blue-50 px-1 text-blue-800">Hora-atividade</span>'
                   : `<span>${escapeHtml(abbreviateReportEntry(entry.text))}</span>`
                 ).join(' / ') : '------'}</td>`;
               }).join('')}
