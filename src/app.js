@@ -1575,6 +1575,20 @@ const SchedulePeriodOptions = turno => {
   ` : '<p class="text-sm font-medium text-amber-700">Cadastre os períodos deste turno em Horários → Períodos.</p>';
 };
 
+const EditSchedulePeriodOptions = (turno, selectedPeriodNumber = null) => {
+  const periods = schoolPeriods.filter(period => period.turno === turno);
+  return periods.length ? `
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      ${periods.map(period => `
+        <label class="flex cursor-pointer items-center gap-2 rounded-lg bg-slate-50 p-2.5 text-sm font-semibold text-slate-700">
+          <input type="radio" name="edit-form-period" value="${period.periodNumber}" data-start="${escapeHtml(String(period.startTime).slice(0, 5))}" data-end="${escapeHtml(String(period.endTime).slice(0, 5))}" onchange="actions.setEditSchedulePeriod(this)" class="h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500" ${selectedPeriodNumber === period.periodNumber ? 'checked' : ''}>
+          <span>${period.name} (${String(period.startTime).slice(0, 5)}–${String(period.endTime).slice(0, 5)})</span>
+        </label>
+      `).join('')}
+    </div>
+  ` : '<p class="text-sm font-medium text-amber-700">Cadastre os períodos deste turno em Horários → Períodos.</p>';
+};
+
 const CreateModal = () => `
   <div id="create-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 hidden">
     <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick="actions.hideCreateModal()"></div>
@@ -1748,12 +1762,16 @@ const EditModal = () => `
         </div>
         <label class="block">
           <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Turno</span>
-          <select id="edit-form-turno" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm text-slate-900" required>
+          <select id="edit-form-turno" onchange="actions.setEditScheduleTurno(this.value)" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm text-slate-900" required>
             <option value="manha">Manhã</option>
             <option value="tarde">Tarde</option>
             <option value="noite">Noite</option>
           </select>
         </label>
+        <fieldset class="rounded-xl border border-slate-200 p-3">
+          <legend class="px-1 text-xs font-bold uppercase text-slate-500">Períodos da aula</legend>
+          <div id="edit-form-period-options"></div>
+        </fieldset>
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Hora Início</label>
@@ -4003,6 +4021,23 @@ const actions = {
     if (periodOptions) periodOptions.innerHTML = SchedulePeriodOptions(turno);
   },
 
+  setEditScheduleTurno(turno) {
+    const periodOptions = $('#edit-form-period-options');
+    if (periodOptions) periodOptions.innerHTML = EditSchedulePeriodOptions(turno);
+    const start = $('#edit-form-start');
+    const end = $('#edit-form-end');
+    if (start) start.value = '';
+    if (end) end.value = '';
+  },
+
+  setEditSchedulePeriod(input) {
+    if (!input) return;
+    const start = $('#edit-form-start');
+    const end = $('#edit-form-end');
+    if (start) start.value = input.dataset.start || '';
+    if (end) end.value = input.dataset.end || '';
+  },
+
   setPeriodAdminTurno(turno) {
     periodAdminTurno = turno;
   },
@@ -4364,6 +4399,19 @@ const actions = {
     formFields.start.value = s.startTime ? String(s.startTime).slice(0, 5) : '';
     formFields.end.value = s.endTime ? String(s.endTime).slice(0, 5) : '';
     formFields.teacher.value = s.teacherId || '';
+    const turno = getScheduleTurno(s);
+    const matchingPeriod = schoolPeriods.find(period =>
+      period.turno === turno &&
+      String(period.startTime).slice(0, 5) === formFields.start.value &&
+      String(period.endTime).slice(0, 5) === formFields.end.value
+    );
+    const periodOptions = $('#edit-form-period-options');
+    if (periodOptions) {
+      periodOptions.innerHTML = EditSchedulePeriodOptions(
+        turno,
+        matchingPeriod?.periodNumber || s.periodNumber || null
+      );
+    }
     this.updateScheduleSubjectOptions(s.teacherId || '', s.subject || '', 'edit-form');
     this.updateScheduleClassGroupOptions(s.teacherId || '', s.classGroup || '', 'edit-form');
     modal.classList.remove('hidden');
@@ -4717,7 +4765,14 @@ const actions = {
         return showDialog('A senha deve ter no mínimo 8 caracteres, com pelo menos uma letra e um número.');
       }
     } else {
-      if (!passwordPolicy[target.role]) return showDialog('A senha padrão desta categoria não está configurada.');
+      if (!passwordPolicy[target.role]) {
+        const envName = target.role === 'teacher'
+          ? 'DEFAULT_TEACHER_PASSWORD'
+          : target.role === 'diretor'
+            ? 'DEFAULT_DIRECTOR_PASSWORD'
+            : 'DEFAULT_DEV_PASSWORD';
+        return showDialog(`A variável ${envName} não está configurada.`);
+      }
       const confirmed = await showDialog(
         `Aplicar a senha padrão da categoria ${ROLE_META[target.role]?.label || target.role}? O usuário terá que trocá-la no próximo acesso.`,
         { confirm: true, title: 'Confirmar senha padrão' }
@@ -4801,7 +4856,12 @@ const actions = {
     if ($('#bulk-password-confirm')?.value !== 'APLICAR') {
       return showDialog('Digite APLICAR para confirmar a operação.');
     }
-    if (!passwordPolicy[bulkPasswordRole]) return showDialog('A senha padrão desta categoria não está configurada.');
+    if (!passwordPolicy[bulkPasswordRole]) {
+      const envName = bulkPasswordRole === 'teacher'
+        ? 'DEFAULT_TEACHER_PASSWORD'
+        : 'DEFAULT_DIRECTOR_PASSWORD';
+      return showDialog(`A variável ${envName} não está configurada.`);
+    }
 
     const body = { role: bulkPasswordRole, confirm: 'APLICAR' };
     if (user?.role === 'dev' && bulkPasswordSchoolId) body.schoolId = bulkPasswordSchoolId;

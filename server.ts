@@ -35,9 +35,9 @@ if (!logIpSalt) {
 
 type PasswordRole = 'teacher' | 'diretor' | 'dev';
 const defaultPasswords: Record<PasswordRole, string | undefined> = {
-  teacher: process.env.DEFAULT_TEACHER_PASSWORD,
-  diretor: process.env.DEFAULT_DIRECTOR_PASSWORD,
-  dev: process.env.DEFAULT_DEV_PASSWORD
+  teacher: process.env.DEFAULT_TEACHER_PASSWORD?.trim() || undefined,
+  diretor: process.env.DEFAULT_DIRECTOR_PASSWORD?.trim() || undefined,
+  dev: process.env.DEFAULT_DEV_PASSWORD?.trim() || undefined
 };
 const defaultPasswordEnvNames: Record<PasswordRole, string> = {
   teacher: 'DEFAULT_TEACHER_PASSWORD',
@@ -1138,7 +1138,9 @@ app.post('/api/users/:uid/password', async (req, res) => {
       return res.status(400).json({ error: 'Não há senha padrão para este perfil.' });
     }
     const configuredPassword = defaultPasswords[role];
-    if (!configuredPassword) return res.status(503).json({ error: 'A senha padrão deste perfil não está configurada.' });
+    if (!configuredPassword) {
+      return res.status(503).json({ error: `A variável ${defaultPasswordEnvNames[role]} não está configurada.` });
+    }
     newPassword = configuredPassword;
   }
 
@@ -1187,7 +1189,12 @@ app.post('/api/users/password/bulk-default', async (req, res) => {
   }
 
   const configuredPassword = defaultPasswords[role as 'teacher' | 'diretor'];
-  if (!configuredPassword) return res.status(503).json({ error: 'A senha padrão deste perfil não está configurada.' });
+  if (!configuredPassword) {
+    const envName = role === 'teacher'
+      ? defaultPasswordEnvNames.teacher
+      : defaultPasswordEnvNames.diretor;
+    return res.status(503).json({ error: `A variável ${envName} não está configurada.` });
+  }
 
   const requestedSchoolId = actor.role === 'diretor' ? actor.school_id : schoolId;
   if (requestedSchoolId) {
