@@ -3408,7 +3408,7 @@ const HorariosTab = () => `
                   <i data-lucide="pencil" class="w-4 h-4"></i>
                   <span>Editar</span>
                 </button>
-                <button onclick="actions.showDeleteModal(${s.id})" class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 text-rose-700 transition-colors hover:bg-rose-100 focus:outline-none focus:ring-2 focus:ring-rose-500" title="Excluir horário" aria-label="Excluir horário">
+                <button type="button" data-schedule-id="${escapeHtml(s.id)}" onclick="actions.showDeleteModal(this.dataset.scheduleId)" class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 text-rose-700 transition-colors hover:bg-rose-100 focus:outline-none focus:ring-2 focus:ring-rose-500" title="Excluir horário" aria-label="Excluir horário">
                   <i data-lucide="trash-2" class="w-4 h-4"></i>
                 </button>
               </div>
@@ -4536,7 +4536,7 @@ const actions = {
       this.hideDeleteModal();
       this.init();
     } catch (err) {
-      showDialog('Erro ao excluir.');
+      showDialog(err.message || 'Erro ao excluir.');
     }
   },
 
