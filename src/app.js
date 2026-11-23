@@ -152,6 +152,7 @@ let allUsers = [];
 let passwordPolicy = { teacher: false, diretor: false, dev: false };
 let managingPasswordUserId = null;
 let managedPasswordMode = 'custom';
+let ownPasswordModalOpen = false;
 let bulkPasswordModalOpen = false;
 let bulkPasswordRole = 'teacher';
 let bulkPasswordSchoolId = '';
@@ -2797,15 +2798,13 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
                     >
                       <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Editar
                     </button>
-                    ${u.uid !== user?.uid ? `
-                      <button
-                        type="button"
-                        onclick="actions.openPasswordModal('${u.uid}')"
-                        class="mr-2 inline-flex items-center gap-2 rounded-xl border border-amber-200 px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-50"
-                      >
-                        <i data-lucide="key-round" class="w-3.5 h-3.5"></i> Definir senha
-                      </button>
-                    ` : ''}
+                    <button
+                      type="button"
+                      onclick="${u.uid === user?.uid ? `actions.openOwnPasswordModal('${u.uid}')` : `actions.openPasswordModal('${u.uid}')`}"
+                      class="mr-2 inline-flex items-center gap-2 rounded-xl border border-amber-200 px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-50"
+                    >
+                      <i data-lucide="key-round" class="w-3.5 h-3.5"></i> ${u.uid === user?.uid ? 'Minha senha' : 'Definir senha'}
+                    </button>
                     <button
                       onclick="actions.deleteUser('${u.uid}', '${(u.displayName || 'Usuário').replace(/'/g, "\\'")}', '${u.email || 'usuário'}')"
                       class="inline-flex items-center gap-2 rounded-xl border ${u.uid === user?.uid ? 'border-slate-200 text-slate-400 cursor-not-allowed' : 'border-rose-200 text-rose-600 hover:bg-rose-50'} px-3 py-2 text-xs font-bold disabled:opacity-60"
@@ -2942,8 +2941,51 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
                 </label>
               ` : ''}
               <footer class="flex justify-end gap-3 border-t border-slate-200 pt-4">
+                ${editingUser.uid === user?.uid ? `
+                  <button type="button" onclick="actions.openOwnPasswordModal()" class="mr-auto inline-flex items-center gap-2 rounded-lg border border-amber-200 px-4 py-2 text-sm font-bold text-amber-800 hover:bg-amber-50">
+                    <i data-lucide="key-round" class="h-4 w-4"></i>
+                    Definir minha senha
+                  </button>
+                ` : ''}
                 <button type="button" onclick="actions.closeEditUserModal()" class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
                 <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Salvar alterações</button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      ` : ''}
+      ${ownPasswordModalOpen ? `
+        <div class="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/60 p-4" role="presentation">
+          <section class="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="own-password-title">
+            <header class="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
+              <div>
+                <h4 id="own-password-title" class="text-lg font-black text-slate-900">Definir minha senha</h4>
+                <p class="mt-1 text-sm font-medium text-slate-500">Você pode alterar sua própria senha informando a senha atual.</p>
+              </div>
+              <button type="button" onclick="actions.closeOwnPasswordModal()" class="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Fechar definição de senha">
+                <i data-lucide="x" class="h-5 w-5"></i>
+              </button>
+            </header>
+            <form onsubmit="actions.submitOwnPassword(event)" class="space-y-4 p-5">
+              <label class="block text-xs font-bold text-slate-600">
+                Senha atual
+                <input id="own-current-password" type="password" autocomplete="current-password" required class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+              </label>
+              <label class="block text-xs font-bold text-slate-600">
+                Nova senha
+                <div class="mt-1 flex rounded-xl border border-slate-200 bg-slate-50 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500">
+                  <input id="own-new-password" type="password" autocomplete="new-password" minlength="8" required oninput="actions.updatePasswordStrength('own-new-password')" class="min-w-0 flex-1 rounded-l-xl bg-transparent px-4 py-3 text-sm text-slate-900 outline-none">
+                  <button type="button" onclick="actions.togglePasswordVisibility('own-new-password')" class="px-4 text-xs font-bold text-blue-700">Mostrar</button>
+                </div>
+              </label>
+              <p id="own-new-password-strength" class="text-xs font-semibold text-slate-500">A senha deve ter pelo menos 8 caracteres, uma letra e um número.</p>
+              <label class="block text-xs font-bold text-slate-600">
+                Confirmar nova senha
+                <input id="own-confirm-password" type="password" autocomplete="new-password" minlength="8" required class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+              </label>
+              <footer class="flex justify-end gap-3 border-t border-slate-200 pt-4">
+                <button type="button" onclick="actions.closeOwnPasswordModal()" class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600">Cancelar</button>
+                <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Definir minha senha</button>
               </footer>
             </form>
           </section>
@@ -5008,12 +5050,54 @@ const actions = {
   openEditUserModal(uid) {
     if (!allUsers.some(account => account.uid === uid)) return;
     editingUserId = uid;
+    ownPasswordModalOpen = false;
     this.renderCurrentView();
   },
 
   closeEditUserModal() {
     editingUserId = null;
+    ownPasswordModalOpen = false;
     this.renderCurrentView();
+  },
+
+  openOwnPasswordModal(uid = user?.uid) {
+    if (!user || uid !== user.uid) return;
+    editingUserId = uid;
+    ownPasswordModalOpen = true;
+    this.renderCurrentView();
+  },
+
+  closeOwnPasswordModal() {
+    ownPasswordModalOpen = false;
+    this.renderCurrentView();
+  },
+
+  async submitOwnPassword(event) {
+    event.preventDefault();
+    const currentPassword = $('#own-current-password')?.value || '';
+    const newPassword = $('#own-new-password')?.value || '';
+    const confirmPassword = $('#own-confirm-password')?.value || '';
+    if (!currentPassword) {
+      return showDialog('Informe sua senha atual.');
+    }
+    if (newPassword.length < 8 || !/\p{L}/u.test(newPassword) || !/\d/.test(newPassword)) {
+      return showDialog('A nova senha deve ter no mínimo 8 caracteres, com pelo menos uma letra e um número.');
+    }
+    if (newPassword !== confirmPassword) {
+      return showDialog('A confirmação da nova senha não corresponde à nova senha.');
+    }
+
+    try {
+      await api.patch('/api/auth/password', { currentPassword, newPassword });
+      passwordChangeRequired = false;
+      ownPasswordModalOpen = false;
+      user = { ...user, mustChangePassword: false };
+      persistUserSession();
+      this.renderCurrentView();
+      showDialog('Sua senha foi atualizada com sucesso.');
+    } catch (error) {
+      showDialog(error.message || 'Não foi possível atualizar sua senha.');
+    }
   },
 
   async saveUser(event, uid) {
