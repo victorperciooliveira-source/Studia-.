@@ -203,7 +203,6 @@ let teacherSubjectSearch = '';
 let expandedTeacherSubjectCards = new Set();
 let reportTeacher = 'all';
 let schoolName = 'COLÉGIO ESTADUAL PROF. JÚLIO SZYMANSKI - MATUTINO';
-let currentRelatorioSubTab = 'urania';
 let reportModel = 'prof_turma'; // 'prof_turma', 'prof_subject', 'turma_grid'
 let reportCardSize = localStorage.getItem('reportCardSize') || 'medium'; // 'small', 'medium', 'large'
 let teacherSchedulesTab = 'grid'; // 'grid' or 'list'
@@ -1775,14 +1774,6 @@ const EditModal = () => `
             }).join('')}
           </select>
           <p id="edit-form-teacher-class-groups-status" class="mt-1 hidden text-xs font-medium text-slate-500"></p>
-        </div>
-        <div>
-          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Status</label>
-          <select id="edit-form-status" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
-            <option value="pending">Pendente</option>
-            <option value="confirmed">Confirmado</option>
-            <option value="absent">Falta / Ausente</option>
-          </select>
         </div>
         <div class="flex gap-4 pt-4">
           <button type="button" onclick="actions.hideEditModal()" class="flex-1 py-2.5 border border-slate-200 rounded-lg font-bold hover:bg-slate-50 transition-all text-slate-700">Cancelar</button>
@@ -3706,42 +3697,6 @@ const RelatoriosTab = () => {
     gridColsClass = "grid grid-cols-1 gap-8 print:grid-cols-1 print:gap-6 justify-center";
   }
 
-  const subTabHeader = `
-    <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl w-full sm:w-fit mb-8 print:hidden overflow-x-auto scrollbar-none select-none shrink-0">
-      <button onclick="actions.setRelatorioSubTab('urania')" class="px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
-        currentRelatorioSubTab === 'urania' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-      }">
-        <i data-lucide="grid-3x3" class="w-4 h-4 text-slate-500"></i> Grade de Professores (Individual)
-      </button>
-      <button onclick="actions.setRelatorioSubTab('frequent')" class="px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
-        currentRelatorioSubTab === 'frequent' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-      }">
-        <i data-lucide="bar-chart-3" class="w-4 h-4 text-slate-500"></i> Gráfico de Frequência
-      </button>
-    </div>
-  `;
-
-  if (currentRelatorioSubTab === 'frequent') {
-    return `
-      <div class="space-y-4">
-        <h3 class="text-2xl font-black text-slate-900 print:hidden">Relatório de Frequência</h3>
-        ${subTabHeader}
-        <div class="bg-white p-10 rounded-[2.5rem] border shadow-sm flex flex-col items-center">
-          <div class="flex items-end gap-6 h-64 mb-10">
-            <div class="w-20 bg-blue-500 rounded-t-2xl" style="height: ${stats.total > 0 ? (stats.confirmed / stats.total) * 100 : 0}%"></div>
-            <div class="w-20 bg-rose-500 rounded-t-2xl" style="height: ${stats.total > 0 ? (stats.absent / stats.total) * 100 : 0}%"></div>
-            <div class="w-20 bg-amber-400 rounded-t-2xl" style="height: ${stats.total > 0 ? (stats.pending / stats.total) * 100 : 0}%"></div>
-          </div>
-          <div class="grid grid-cols-3 gap-10 text-center uppercase font-black text-xs">
-            <div class="text-blue-600">Presentes: ${stats.confirmed}</div>
-            <div class="text-rose-500">Ausentes: ${stats.absent}</div>
-            <div class="text-amber-500">Pendentes: ${stats.pending}</div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
   return `
     <div class="space-y-6">
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden">
@@ -3757,7 +3712,6 @@ const RelatoriosTab = () => {
         </div>
       </div>
 
-      ${subTabHeader}
 
       <!-- Modelo Selector Tab -->
       <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl w-full sm:w-fit mb-2 print:hidden overflow-x-auto scrollbar-none select-none shrink-0" id="report-model-tabs">
@@ -4352,8 +4306,7 @@ const actions = {
       turno: $('#edit-form-turno'),
       start: $('#edit-form-start'),
       end: $('#edit-form-end'),
-      teacher: $('#edit-form-teacher'),
-      status: $('#edit-form-status')
+      teacher: $('#edit-form-teacher')
     };
     if (Object.values(formFields).some(field => !field)) {
       showDialog('O formulário de edição está incompleto. Atualize a página e tente novamente.');
@@ -4369,7 +4322,6 @@ const actions = {
     formFields.start.value = s.startTime ? String(s.startTime).slice(0, 5) : '';
     formFields.end.value = s.endTime ? String(s.endTime).slice(0, 5) : '';
     formFields.teacher.value = s.teacherId || '';
-    formFields.status.value = s.status || 'pending';
     this.updateScheduleSubjectOptions(s.teacherId || '', s.subject || '', 'edit-form');
     this.updateScheduleClassGroupOptions(s.teacherId || '', s.classGroup || '', 'edit-form');
     modal.classList.remove('hidden');
@@ -5439,8 +5391,7 @@ const actions = {
       startTime: $('#edit-form-start').value,
       endTime: $('#edit-form-end').value,
       teacherId: teacherSelect.value,
-      teacherName: teacherSelect.options[teacherSelect.selectedIndex].text,
-      status: $('#edit-form-status').value
+      teacherName: teacherSelect.options[teacherSelect.selectedIndex].text
     };
     
     try {
@@ -5580,11 +5531,6 @@ const actions = {
     if (headerTitle) {
       headerTitle.textContent = val;
     }
-  },
-
-  setRelatorioSubTab(val) {
-    currentRelatorioSubTab = val;
-    this.renderCurrentView();
   },
 
   setReportModel(val) {
