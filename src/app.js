@@ -677,12 +677,12 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
   let rowClass = "h-9";
 
   if (reportCardSize === 'small') {
-    cardStyle = "font-size: 8.5px; padding: 0.5rem; height: 180px; min-height: 180px; max-height: 180px; overflow: hidden;";
-    headerSize = "text-[9px]";
-    subTitleSize = "text-[7.5px]";
-    thSize = "text-[7px]";
-    tdSize = "text-[7.5px]";
-    rowClass = "h-5";
+    cardStyle = "font-size: 9.5px; padding: 0.625rem; height: 220px; min-height: 220px; max-height: 220px; overflow: hidden;";
+    headerSize = "text-[10px]";
+    subTitleSize = "text-[8px]";
+    thSize = "text-[8px]";
+    tdSize = "text-[8.5px]";
+    rowClass = "h-8";
   } else if (reportCardSize === 'large') {
     cardStyle = "font-size: 13.5px; padding: 1rem;";
     headerSize = "text-[14px]";
@@ -708,7 +708,7 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
 
   if (model === 'prof_turma') {
     const professorTurmaSize = {
-      small: { card: "font-size: 8.5px; padding: 0.5rem; height: 180px; min-height: 180px; max-height: 180px; overflow: hidden;", header: "text-[9px]", th: "text-[7px]", td: "text-[7.5px]", row: "h-5" },
+      small: { card: "font-size: 9.5px; padding: 0.625rem; height: 220px; min-height: 220px; max-height: 220px; overflow: hidden;", header: "text-[10px]", th: "text-[8px]", td: "text-[8.5px]", row: "h-8" },
       medium: { card: "font-size: 9px; padding: 0.5rem; height: 240px; min-height: 240px; max-height: 240px; overflow: hidden;", header: "text-[10px]", th: "text-[8px]", td: "text-[8.5px]", row: "h-8" },
       large: { card: "font-size: 11.5px; padding: 0.75rem; height: 290px; min-height: 290px; max-height: 290px; overflow: hidden;", header: "text-[12px]", th: "text-[9px]", td: "text-[10px]", row: "h-10" },
       esticado: { card: "font-size: 13px; padding: 1rem; height: 340px; min-height: 340px; max-height: 340px; overflow: hidden;", header: "text-[14px]", th: "text-[11px]", td: "text-[12px]", row: "h-12" },
@@ -799,13 +799,13 @@ const TurmaScheduleCard = (turmaName, weekSchedules, slots) => {
   let rowClass = "h-11";
 
   if (reportCardSize === 'small') {
-    cardStyle = "font-size: 8.5px; padding: 0.5rem; height: 180px; min-height: 180px; max-height: 180px; overflow: hidden;";
-    headerSize = "text-[9px]";
-    subTitleSize = "text-[7.5px]";
-    thSize = "text-[7px]";
-    tdTitleSize = "text-[8.5px]";
-    tdSubSize = "text-[7.5px]";
-    rowClass = "h-5";
+    cardStyle = "font-size: 9.5px; padding: 0.625rem; height: 220px; min-height: 220px; max-height: 220px; overflow: hidden;";
+    headerSize = "text-[10px]";
+    subTitleSize = "text-[8px]";
+    thSize = "text-[8px]";
+    tdTitleSize = "text-[9px]";
+    tdSubSize = "text-[8px]";
+    rowClass = "h-8";
   } else if (reportCardSize === 'large') {
     cardStyle = "font-size: 13.5px; padding: 1rem;";
     headerSize = "text-[14px]";
@@ -3677,7 +3677,7 @@ const RelatoriosTab = () => {
   let gridColsClass = "grid grid-cols-1 sm:grid-cols-2 gap-3.5 print:grid-cols-2 print:gap-3 justify-center";
   if (reportModel === 'prof_turma') {
     if (reportCardSize === 'small') {
-      gridColsClass = "grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 print:grid-cols-5 print:gap-1 justify-center";
+      gridColsClass = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4 gap-3 print:grid-cols-4 print:gap-3 justify-center";
     } else if (reportCardSize === 'medium') {
       gridColsClass = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 print:grid-cols-4 print:gap-2 justify-center";
     } else if (reportCardSize === 'large') {
@@ -3688,7 +3688,7 @@ const RelatoriosTab = () => {
       gridColsClass = "grid grid-cols-1 gap-8 print:grid-cols-1 print:gap-6 justify-center";
     }
   } else if (reportCardSize === 'small') {
-    gridColsClass = "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 print:grid-cols-5 print:gap-1 justify-center";
+    gridColsClass = "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-3 print:grid-cols-4 print:gap-3 justify-center";
   } else if (reportCardSize === 'medium') {
     gridColsClass = "grid grid-cols-1 sm:grid-cols-2 gap-3.5 print:grid-cols-2 print:gap-3 justify-center";
   } else if (reportCardSize === 'large') {
@@ -5728,7 +5728,7 @@ const actions = {
       super_esticado: 1
     };
     const professorTurmaItemsPerPage = {
-      small: 10,
+      small: 8,
       medium: 8,
       large: 6,
       esticado: 4,
@@ -5755,7 +5755,7 @@ const actions = {
     let gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
     if (!isTurma && reportModel === 'prof_turma') {
       if (reportCardSize === 'small') {
-        gridColsClass = "grid grid-cols-5 gap-2 justify-center w-full";
+        gridColsClass = "grid grid-cols-4 gap-3 justify-center w-full";
       } else if (reportCardSize === 'medium') {
         gridColsClass = "grid grid-cols-4 gap-3 justify-center w-full";
       } else if (reportCardSize === 'large') {
@@ -5766,7 +5766,7 @@ const actions = {
         gridColsClass = "grid grid-cols-1 gap-6 justify-center w-full";
       }
     } else if (reportCardSize === 'small') {
-      gridColsClass = "grid grid-cols-4 gap-2 justify-center w-full";
+      gridColsClass = "grid grid-cols-4 gap-3 justify-center w-full";
     } else if (reportCardSize === 'medium') {
       gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
     } else if (reportCardSize === 'large') {
@@ -5828,7 +5828,7 @@ const actions = {
       const breakStyle = chunkIndex === chunks.length - 1 ? '' : 'page-break-after: always;';
       const pageGridStyle = !isTurma && reportModel === 'prof_turma'
         ? ({
-            small: 'grid-auto-rows: 180px; align-content: start;',
+            small: 'grid-auto-rows: 220px; align-content: start;',
             medium: 'grid-auto-rows: 240px; align-content: start;',
             large: 'grid-auto-rows: 290px; align-content: start;',
             esticado: 'grid-auto-rows: 340px; align-content: start;',
