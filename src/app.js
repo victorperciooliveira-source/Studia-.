@@ -356,8 +356,8 @@ const api = {
   async put(url, data) {
     return this.request(url, { method: 'PUT', body: JSON.stringify(data) });
   },
-  async get(url) {
-    return this.request(url, { method: 'GET' });
+  async get(url, options = {}) {
+    return this.request(url, { ...options, method: 'GET' });
   },
   async patch(url, data) {
     return this.request(url, { method: 'PATCH', body: JSON.stringify(data) });
@@ -4727,16 +4727,30 @@ const actions = {
     }
   },
 
-  openBulkPasswordModal() {
+  async openBulkPasswordModal() {
     if (!user || !['dev', 'diretor'].includes(user.role)) return;
-    bulkPasswordRole = passwordPolicy.teacher
-      ? 'teacher'
-      : passwordPolicy.diretor
-        ? 'diretor'
-        : 'teacher';
-    bulkPasswordSchoolId = '';
-    bulkPasswordModalOpen = true;
-    this.renderCurrentView();
+    try {
+      const policy = await api.get('/api/users/password-policy', { cache: 'no-store' });
+      if (!policy || Array.isArray(policy) ||
+          typeof policy.teacher !== 'boolean' || typeof policy.diretor !== 'boolean') {
+        throw new Error('O servidor retornou uma política de senha inválida.');
+      }
+      passwordPolicy = {
+        teacher: policy.teacher,
+        diretor: policy.diretor,
+        dev: user.role === 'dev' && policy.dev === true
+      };
+      bulkPasswordRole = passwordPolicy.teacher
+        ? 'teacher'
+        : passwordPolicy.diretor
+          ? 'diretor'
+          : 'teacher';
+      bulkPasswordSchoolId = '';
+      bulkPasswordModalOpen = true;
+      this.renderCurrentView();
+    } catch (error) {
+      showDialog(error.message || 'Não foi possível verificar as senhas padrão configuradas.');
+    }
   },
 
   closeBulkPasswordModal() {
