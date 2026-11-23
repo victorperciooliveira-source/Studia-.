@@ -5796,13 +5796,17 @@ const actions = {
       jsPDF:        { unit: 'in', format: 'a4', orientation: 'landscape' }
     };
     
-    const restoreOklch = prepareOklchForPrint(pdfContainer);
+    let restoreOklch = () => {};
+    let restoreStylesheets = () => {};
     try {
+      restoreOklch = prepareOklchForPrint(pdfContainer);
+      restoreStylesheets = await cleanOklchFromStylesheets();
       await html2pdf().set(opt).from(pdfContainer).save();
     } catch (err) {
       console.error('Error generating PDF:', err);
       showDialog('Houve um erro ao gerar o PDF.');
     } finally {
+      restoreStylesheets();
       restoreOklch();
       pdfContainer.remove();
       if (btn) {
@@ -6019,13 +6023,17 @@ const actions = {
       pagebreak:    { mode: ['css', 'legacy'] }
     };
 
-    const restoreOklch = prepareOklchForPrint(pdfContainer);
+    let restoreOklch = () => {};
+    let restoreStylesheets = () => {};
     try {
+      restoreOklch = prepareOklchForPrint(pdfContainer);
+      restoreStylesheets = await cleanOklchFromStylesheets();
       await html2pdf().set(opt).from(pdfContainer).save();
     } catch (err) {
       console.error('Error generating PDF:', err);
       showDialog('Houve um erro ao gerar o PDF.');
     } finally {
+      restoreStylesheets();
       restoreOklch();
       pdfContainer.remove();
       if (btn) {
@@ -6234,6 +6242,71 @@ function resolveOklchToRgb(colorStr) {
     }
     return oklchToRgbFallback(match);
   });
+}
+
+async function cleanOklchFromStylesheets() {
+  const backups = [];
+  const styleNodes = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
+  let combinedCss = '';
+
+  for (const node of styleNodes) {
+    try {
+      if (node.tagName === 'STYLE') {
+        combinedCss += `\n${node.innerHTML}`;
+        backups.push({ node, originalDisabled: node.disabled });
+      } else if (node.tagName === 'LINK') {
+        let rulesText = '';
+        try {
+          const rules = node.sheet?.cssRules || node.sheet?.rules;
+          if (rules) {
+            for (let i = 0; i < rules.length; i++) {
+              rulesText += `${rules[i].cssText}\n`;
+            }
+          }
+        } catch {
+          // Cross-origin stylesheets do not expose their CSS rules.
+        }
+
+        if (!rulesText) {
+          const href = node.getAttribute('href');
+          if (href && (
+            href.startsWith('/') ||
+            href.startsWith('./') ||
+            href.startsWith('src/') ||
+            href.startsWith(window.location.origin)
+          )) {
+            const response = await fetch(href);
+            if (!response.ok) throw new Error(`Could not load stylesheet: ${href}`);
+            rulesText = await response.text();
+          }
+        }
+
+        if (rulesText) {
+          combinedCss += `\n${rulesText}`;
+          backups.push({ node, originalDisabled: node.disabled });
+        }
+      }
+    } catch (err) {
+      console.warn('Could not read stylesheet for PDF export:', node, err);
+    }
+  }
+
+  const cleanedCss = combinedCss.replace(/oklch\([^)]+\)/gi, oklchToRgbFallback);
+  const tempStyle = document.createElement('style');
+  tempStyle.id = 'temp-cleaned-stylesheets';
+  tempStyle.textContent = cleanedCss;
+  document.head.appendChild(tempStyle);
+
+  for (const { node } of backups) {
+    node.disabled = true;
+  }
+
+  return function restore() {
+    for (const { node, originalDisabled } of backups) {
+      node.disabled = originalDisabled;
+    }
+    tempStyle.remove();
+  };
 }
 
 function prepareOklchForPrint(container) {
