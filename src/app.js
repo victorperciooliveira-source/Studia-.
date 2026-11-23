@@ -1657,7 +1657,7 @@ const CreateModal = () => `
         <fieldset class="rounded-xl border border-slate-200 p-3">
           <legend class="px-1 text-xs font-bold uppercase text-slate-500">Períodos da aula</legend>
           <div id="form-period-options">${SchedulePeriodOptions('manha')}</div>
-          <p class="mt-2 text-xs text-slate-500">A 6ª aula será criada somente nos dias da semana que você selecionar acima.</p>
+          <p class="mt-2 text-xs text-slate-500">Cada aula será criada somente nos dias da semana selecionados acima.</p>
         </fieldset>
         <div class="flex gap-4 pt-2">
           <button type="button" onclick="actions.hideCreateModal()" class="flex-1 py-2.5 border border-slate-200 rounded-lg font-bold hover:bg-slate-50 transition-all text-slate-700">Cancelar</button>

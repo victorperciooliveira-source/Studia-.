@@ -1911,12 +1911,13 @@ app.post('/api/schedules/recurring', async (req, res) => {
     teacherid: string;
     classgroup: string | null;
     room: string | null;
+    subject: string | null;
   };
   const existingSchedules: ExistingSchedule[] = [];
   for (let offset = 0; ; offset += 1000) {
     const { data: page, error: schedulesError } = await supabase
       .from('schedules')
-      .select('id,date,starttime,endtime,teacherid,classgroup,room')
+      .select('id,date,starttime,endtime,teacherid,classgroup,room,subject')
       .eq('school_id', userInfo.school_id)
       .gte('date', startDate)
       .lte('date', endDate)
@@ -1950,7 +1951,16 @@ app.post('/api/schedules/recurring', async (req, res) => {
         doesTimeOverlap(entry.starttime, entry.endtime, schedule.starttime, schedule.endtime);
     });
     if (conflict) {
-      return res.status(409).json({ error: `Conflito de horário em ${entry.date}, das ${entry.starttime.slice(0, 5)} às ${entry.endtime.slice(0, 5)}. Nenhuma aula foi criada.` });
+      const conflictingClass = String(conflict.classgroup || '').trim();
+      const conflictingSubject = String(conflict.subject || '').trim();
+      const conflictDetails = [
+        conflictingClass ? `turma ${conflictingClass}` : null,
+        conflictingSubject ? `matéria ${conflictingSubject}` : null
+      ].filter(Boolean).join(', ');
+      const conflictDescription = conflictDetails ? ` com ${conflictDetails}` : '';
+      return res.status(409).json({
+        error: `Conflito de horário em ${entry.date}, das ${entry.starttime.slice(0, 5)} às ${entry.endtime.slice(0, 5)}${conflictDescription}. Nenhuma aula foi criada.`
+      });
     }
   }
 
