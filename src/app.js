@@ -5876,22 +5876,22 @@ const actions = {
 
     // Determine how many items per page
     const itemsPerPageMap = {
-      small: 8,
-      medium: 4,
-      large: 3,
+      small: 2,
+      medium: 2,
+      large: 2,
       esticado: 2,
       super_esticado: 1
     };
     const professorTurmaItemsPerPage = {
-      small: 8,
-      medium: 8,
-      large: 6,
-      esticado: 4,
+      small: 2,
+      medium: 2,
+      large: 2,
+      esticado: 2,
       super_esticado: 1
     };
     const itemsPerPage = !isTurma && reportModel === 'prof_turma'
-      ? (professorTurmaItemsPerPage[reportCardSize] || 8)
-      : (itemsPerPageMap[reportCardSize] || 4);
+      ? (professorTurmaItemsPerPage[reportCardSize] || 2)
+      : (itemsPerPageMap[reportCardSize] || 2);
 
     const chunks = [];
     for (let i = 0; i < items.length; i += itemsPerPage) {
@@ -5910,22 +5910,22 @@ const actions = {
     let gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
     if (!isTurma && reportModel === 'prof_turma') {
       if (reportCardSize === 'small') {
-        gridColsClass = "grid grid-cols-4 gap-3 justify-center w-full";
+        gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
       } else if (reportCardSize === 'medium') {
-        gridColsClass = "grid grid-cols-4 gap-3 justify-center w-full";
+        gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
       } else if (reportCardSize === 'large') {
-        gridColsClass = "grid grid-cols-3 gap-4 justify-center w-full";
+        gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
       } else if (reportCardSize === 'esticado') {
         gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
       } else if (reportCardSize === 'super_esticado') {
         gridColsClass = "grid grid-cols-1 gap-6 justify-center w-full";
       }
     } else if (reportCardSize === 'small') {
-      gridColsClass = "grid grid-cols-4 gap-3 justify-center w-full";
+      gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
     } else if (reportCardSize === 'medium') {
       gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
     } else if (reportCardSize === 'large') {
-      gridColsClass = "grid grid-cols-3 gap-4 justify-center w-full";
+      gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
     } else if (reportCardSize === 'esticado') {
       gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
     } else if (reportCardSize === 'super_esticado') {
