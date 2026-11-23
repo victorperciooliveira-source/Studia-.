@@ -489,11 +489,18 @@ const getTeacherHourActivityPlan = teacherSchedules => {
         .map(time => ({ start: getTimeMinutes(time.start), end: getTimeMinutes(time.end) }))
         .filter(time => time.start !== null && time.end !== null && time.end > time.start);
       if (lessonTimes.length === 0) return;
-      const firstStart = Math.min(...lessonTimes.map(time => time.start));
-      const lastEnd = Math.max(...lessonTimes.map(time => time.end));
+      const dayTurno = getScheduleTurno(dayLessons[0]);
+      const existingHourActivities = weekSchedules
+        .filter(schedule => schedule.date === date && isHourActivitySchedule(schedule))
+        .map(getScheduleLessonTime)
+        .map(time => ({ start: getTimeMinutes(time.start), end: getTimeMinutes(time.end) }))
+        .filter(time => time.start !== null && time.end !== null);
 
       schoolPeriods
-        .filter(period => period.school_id === (dayLessons[0].school_id || user?.school_id))
+        .filter(period =>
+          period.school_id === (dayLessons[0].school_id || user?.school_id) &&
+          period.turno === dayTurno
+        )
         .map(period => ({
           period,
           start: String(period.startTime || '').slice(0, 5),
@@ -503,8 +510,8 @@ const getTeacherHourActivityPlan = teacherSchedules => {
           const startMinutes = getTimeMinutes(start);
           const endMinutes = getTimeMinutes(end);
           return startMinutes !== null && endMinutes !== null &&
-            startMinutes >= firstStart && endMinutes <= lastEnd &&
-            !lessonTimes.some(time => startMinutes < time.end && endMinutes > time.start);
+            !lessonTimes.some(time => startMinutes < time.end && endMinutes > time.start) &&
+            !existingHourActivities.some(time => startMinutes < time.end && endMinutes > time.start);
         })
         .sort((a, b) => a.start.localeCompare(b.start))
         .forEach(({ period, start, end }) => {
