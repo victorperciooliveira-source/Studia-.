@@ -1825,6 +1825,8 @@ app.post('/api/schedules/recurring', async (req, res) => {
 
   const { startDate, endDate, weekdayNumbers, periodNumbers, turno } = req.body || {};
   const subject = sanitizeString(req.body?.subject || '');
+  const secondSubject = sanitizeString(req.body?.secondSubject || '');
+  const secondPeriodNumbers = req.body?.secondPeriodNumbers ?? [];
   const classGroup = sanitizeString(req.body?.classGroup || '');
   const room = sanitizeString(req.body?.room || '');
   const teacherId = typeof req.body?.teacherId === 'string' ? req.body.teacherId : '';
@@ -1844,9 +1846,22 @@ app.post('/api/schedules/recurring', async (req, res) => {
   }
   if (!Array.isArray(periodNumbers) || periodNumbers.length === 0 ||
       periodNumbers.some(period => !Number.isInteger(period) || period < 1 || period > 30) ||
-      new Set(periodNumbers).size !== periodNumbers.length || periodNumbers.length > maximumPeriods ||
-      periodNumbers.some(period => period > maximumPeriods)) {
+      new Set(periodNumbers).size !== periodNumbers.length || periodNumbers.some(period => period > maximumPeriods)) {
     return res.status(400).json({ error: 'Selecione ao menos um período válido.' });
+  }
+  if (!Array.isArray(secondPeriodNumbers) ||
+      secondPeriodNumbers.some(period => !Number.isInteger(period) || period < 1 || period > maximumPeriods) ||
+      new Set(secondPeriodNumbers).size !== secondPeriodNumbers.length ||
+      (secondSubject && secondPeriodNumbers.length === 0) ||
+      (!secondSubject && secondPeriodNumbers.length > 0)) {
+    return res.status(400).json({ error: 'Informe a segunda matéria e selecione períodos válidos para ela.' });
+  }
+  const allPeriodNumbers = [...periodNumbers, ...secondPeriodNumbers];
+  if (new Set(allPeriodNumbers).size !== allPeriodNumbers.length || allPeriodNumbers.length > maximumPeriods) {
+    return res.status(400).json({ error: 'Cada período pode ser usado para apenas uma matéria.' });
+  }
+  if (secondSubject && secondSubject.toLocaleLowerCase() === subject.toLocaleLowerCase()) {
+    return res.status(400).json({ error: 'A segunda matéria precisa ser diferente da primeira.' });
   }
   if (!subject || !classGroup || !teacherId) {
     return res.status(400).json({ error: 'Preencha matéria, turma e professor.' });
@@ -1871,10 +1886,10 @@ app.post('/api/schedules/recurring', async (req, res) => {
     .select('period_number,name,start_time,end_time')
     .eq('school_id', userInfo.school_id)
     .eq('turno', turno)
-    .in('period_number', periodNumbers)
+    .in('period_number', allPeriodNumbers)
     .order('period_number', { ascending: true });
   if (periodsError) return res.status(500).json({ error: 'Erro ao buscar os períodos da escola.' });
-  if (!selectedPeriods || selectedPeriods.length !== periodNumbers.length) {
+  if (!selectedPeriods || selectedPeriods.length !== allPeriodNumbers.length) {
     return res.status(400).json({ error: 'Um ou mais períodos selecionados não pertencem à sua escola.' });
   }
   for (let index = 1; index < selectedPeriods.length; index += 1) {
@@ -1886,6 +1901,9 @@ app.post('/api/schedules/recurring', async (req, res) => {
   }
 
   const entries: Array<Record<string, string>> = [];
+  const subjectByPeriod = new Map<number, string>();
+  periodNumbers.forEach(periodNumber => subjectByPeriod.set(periodNumber, subject));
+  secondPeriodNumbers.forEach(periodNumber => subjectByPeriod.set(periodNumber, secondSubject));
   const cursor = new Date(`${startDate}T00:00:00Z`);
   const finalDate = new Date(`${endDate}T00:00:00Z`);
   while (cursor <= finalDate) {
@@ -1896,7 +1914,7 @@ app.post('/api/schedules/recurring', async (req, res) => {
         date,
         starttime: period.start_time,
         endtime: period.end_time,
-        subject,
+        subject: subjectByPeriod.get(period.period_number) || subject,
         room,
         teacherid: teacherId,
         teachername: teacher.displayname || '',

@@ -1561,13 +1561,13 @@ const getClassGroupsForTeacher = (teacherId) => {
     .sort((a, b) => a.localeCompare(b, 'pt-BR'));
 };
 
-const SchedulePeriodOptions = turno => {
+const SchedulePeriodOptions = (turno, inputName = 'form-period') => {
   const periods = schoolPeriods.filter(period => period.turno === turno);
   return periods.length ? `
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
       ${periods.map(period => `
         <label class="flex cursor-pointer items-center gap-2 rounded-lg bg-slate-50 p-2.5 text-sm font-semibold text-slate-700">
-          <input type="checkbox" name="form-period" value="${period.periodNumber}" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+          <input type="checkbox" name="${inputName}" value="${period.periodNumber}" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
           <span>${period.name} (${String(period.startTime).slice(0, 5)}–${String(period.endTime).slice(0, 5)})</span>
         </label>
       `).join('')}
@@ -1614,7 +1614,7 @@ const CreateModal = () => `
           <label class="space-y-1">
             <span class="text-xs font-bold uppercase text-slate-500">Professor</span>
             <input type="search" id="form-teacher-search" oninput="actions.filterScheduleTeachers(this.value)" placeholder="Pesquisar professor por nome ou e-mail" autocomplete="off" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900">
-            <select id="form-teacher" onchange="actions.updateScheduleSubjectOptions(this.value); actions.updateScheduleClassGroupOptions(this.value)" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
+            <select id="form-teacher" onchange="actions.updateScheduleSubjectOptions(this.value); actions.updateScheduleSecondSubjectOptions(this.value); actions.updateScheduleClassGroupOptions(this.value)" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required>
               <option value="">Selecione o Professor</option>
               ${teachers.map(t => {
                 const teacherGroups = getClassGroupsForTeacher(t.uid);
@@ -1674,6 +1674,23 @@ const CreateModal = () => `
           <div id="form-period-options">${SchedulePeriodOptions('manha')}</div>
           <p class="mt-2 text-xs text-slate-500">Cada aula será criada somente nos dias da semana selecionados acima.</p>
         </fieldset>
+        <div class="rounded-xl border border-slate-200 p-3">
+          <label class="flex cursor-pointer items-center gap-2 text-sm font-bold text-slate-700">
+            <input id="form-use-second-subject" type="checkbox" onchange="actions.toggleSecondScheduleSubject(this.checked)" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+            Incluir uma segunda matéria para este professor
+          </label>
+          <div id="form-second-subject-fields" class="mt-4 hidden space-y-3">
+            <label class="block space-y-1">
+              <span class="text-xs font-bold uppercase text-slate-500">Segunda matéria</span>
+              <input type="text" id="form-second-subject" list="form-second-subject-options" placeholder="Selecione ou digite a segunda matéria" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900">
+              <datalist id="form-second-subject-options"></datalist>
+            </label>
+            <fieldset class="rounded-xl border border-slate-200 p-3">
+              <legend class="px-1 text-xs font-bold uppercase text-slate-500">Períodos da segunda matéria</legend>
+              <div id="form-second-period-options">${SchedulePeriodOptions('manha', 'form-second-period')}</div>
+            </fieldset>
+          </div>
+        </div>
         <div class="flex gap-4 pt-2">
           <button type="button" onclick="actions.hideCreateModal()" class="flex-1 py-2.5 border border-slate-200 rounded-lg font-bold hover:bg-slate-50 transition-all text-slate-700">Cancelar</button>
           <button type="submit" ${schoolPeriods.length ? '' : 'disabled'} class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2.5 rounded-lg font-bold shadow-md transition-all">Gerar horários</button>
@@ -4019,6 +4036,17 @@ const actions = {
   setScheduleTurno(turno) {
     const periodOptions = $('#form-period-options');
     if (periodOptions) periodOptions.innerHTML = SchedulePeriodOptions(turno);
+    const secondPeriodOptions = $('#form-second-period-options');
+    if (secondPeriodOptions) secondPeriodOptions.innerHTML = SchedulePeriodOptions(turno, 'form-second-period');
+  },
+
+  toggleSecondScheduleSubject(isEnabled) {
+    $('#form-second-subject-fields')?.classList.toggle('hidden', !isEnabled);
+    if (!isEnabled) {
+      const subjectInput = $('#form-second-subject');
+      if (subjectInput) subjectInput.value = '';
+      document.querySelectorAll('input[name="form-second-period"]').forEach(input => { input.checked = false; });
+    }
   },
 
   setEditScheduleTurno(turno) {
@@ -4238,6 +4266,7 @@ const actions = {
       this.filterScheduleTeachers('');
       this.setScheduleCreateMode($('#form-schedule-mode')?.value || 'weekly');
       this.updateScheduleSubjectOptions($('#form-teacher')?.value || '');
+      this.updateScheduleSecondSubjectOptions($('#form-teacher')?.value || '');
       if (typeof lucide !== 'undefined') lucide.createIcons();
     }
   },
@@ -4262,6 +4291,7 @@ const actions = {
     if (normalizedTerm && selectedOption && selectedOption.value && selectedOption.hidden) {
       select.value = '';
       this.updateScheduleSubjectOptions('');
+      this.updateScheduleSecondSubjectOptions('');
     }
 
     const status = $('#form-teacher-search-status');
@@ -4446,6 +4476,16 @@ const actions = {
     const options = getAssignedSubjectsForTeacher(teacherId);
     subjectOptions.innerHTML = options.map(subject => `<option value="${subject}"></option>`).join('');
     subjectInput.value = selectedSubject || '';
+  },
+
+  updateScheduleSecondSubjectOptions(teacherId, selectedSubject = '') {
+    const subjectInput = $('#form-second-subject');
+    const subjectOptions = $('#form-second-subject-options');
+    if (!subjectInput || !subjectOptions) return;
+
+    const options = getAssignedSubjectsForTeacher(teacherId);
+    subjectOptions.innerHTML = options.map(subject => `<option value="${escapeHtml(subject)}"></option>`).join('');
+    subjectInput.value = selectedSubject;
   },
 
   updateScheduleClassGroupOptions(teacherId, selectedClassGroup = '', prefix = 'form') {
@@ -5479,7 +5519,20 @@ const actions = {
     const turno = $('#form-turno')?.value || 'manha';
     const periodNumbers = Array.from(document.querySelectorAll('input[name="form-period"]:checked'))
       .map(input => Number(input.value));
-    if (periodNumbers.length === 0) return showDialog('Selecione pelo menos um período.');
+    const usesSecondSubject = $('#form-use-second-subject')?.checked || false;
+    const secondSubject = usesSecondSubject ? $('#form-second-subject')?.value.trim() || '' : '';
+    const secondPeriodNumbers = usesSecondSubject
+      ? Array.from(document.querySelectorAll('input[name="form-second-period"]:checked')).map(input => Number(input.value))
+      : [];
+    if (periodNumbers.length === 0) return showDialog('Selecione pelo menos um período para a primeira matéria.');
+    if (usesSecondSubject && !secondSubject) return showDialog('Informe a segunda matéria.');
+    if (usesSecondSubject && secondPeriodNumbers.length === 0) return showDialog('Selecione pelo menos um período para a segunda matéria.');
+    if (secondPeriodNumbers.some(period => periodNumbers.includes(period))) {
+      return showDialog('Cada período pode ser usado para apenas uma matéria. Revise as seleções.');
+    }
+    if (usesSecondSubject && secondSubject.toLocaleLowerCase('pt-BR') === $('#form-subject').value.trim().toLocaleLowerCase('pt-BR')) {
+      return showDialog('A segunda matéria precisa ser diferente da primeira.');
+    }
 
     let startDate;
     let endDate;
@@ -5509,7 +5562,8 @@ const actions = {
       startDate,
       endDate,
       weekdayNumbers,
-      periodNumbers
+      periodNumbers,
+      ...(usesSecondSubject ? { secondSubject, secondPeriodNumbers } : {})
     };
 
     try {
