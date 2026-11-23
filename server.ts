@@ -26,10 +26,37 @@ const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
 });
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT) || 3000;
 const logIpSalt = process.env.LOG_IP_SALT;
 if (!logIpSalt) {
   throw new Error('Configure LOG_IP_SALT no ambiente do servidor para habilitar o registro seguro de logs.');
+}
+
+type PasswordRole = 'teacher' | 'diretor' | 'dev';
+const defaultPasswords: Record<PasswordRole, string | undefined> = {
+  teacher: process.env.DEFAULT_TEACHER_PASSWORD,
+  diretor: process.env.DEFAULT_DIRECTOR_PASSWORD,
+  dev: process.env.DEFAULT_DEV_PASSWORD
+};
+const defaultPasswordEnvNames: Record<PasswordRole, string> = {
+  teacher: 'DEFAULT_TEACHER_PASSWORD',
+  diretor: 'DEFAULT_DIRECTOR_PASSWORD',
+  dev: 'DEFAULT_DEV_PASSWORD'
+};
+const isStrongPassword = (password: unknown): password is string =>
+  typeof password === 'string' &&
+  password.length >= 8 &&
+  /\p{L}/u.test(password) &&
+  /\d/.test(password);
+
+for (const role of ['teacher', 'diretor', 'dev'] as const) {
+  const password = defaultPasswords[role];
+  if (!password) {
+    console.warn(`[PASSWORD_POLICY] ${defaultPasswordEnvNames[role]} is empty; applying this default is disabled.`);
+  } else if (!isStrongPassword(password)) {
+    throw new Error(`${defaultPasswordEnvNames[role]} must have at least 8 characters, including a letter and a number.`);
+  }
 }
 
 type SystemLogLevel = 'info' | 'warn' | 'error';
@@ -103,6 +130,8 @@ const columnMap: {[key: string]: string} = {
   labid: 'labId',
   displayname: 'displayName',
   school_id: 'school_id',
+  must_change_password: 'mustChangePassword',
+  password_set_by: 'passwordSetBy',
   createdat: 'createdAt',
   updatedat: 'updatedAt'
 };
@@ -267,9 +296,16 @@ const saveTeacherSubjects = async (teacherId: string, schoolId: string | null, s
 
 // Security: Rate-limiting em-memória
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+let lastRateLimitCleanup = 0;
 
 const checkRateLimit = (key: string, maxRequests: number = 5, windowMs: number = 60000): boolean => {
   const now = Date.now();
+  if (now - lastRateLimitCleanup > 60000) {
+    for (const [storedKey, entry] of rateLimitMap) {
+      if (now > entry.resetTime) rateLimitMap.delete(storedKey);
+    }
+    lastRateLimitCleanup = now;
+  }
   const entry = rateLimitMap.get(key);
 
   if (!entry || now > entry.resetTime) {
@@ -335,6 +371,51 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+const passwordChangeExemptions = new Set([
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/refresh',
+  '/api/auth/password',
+  '/api/auth/logout',
+  '/api/client-errors',
+  '/api/schools/public',
+  '/api/public/schools'
+]);
+app.use('/api', async (req, res, next) => {
+  const route = `${req.baseUrl}${req.path}`;
+  if (passwordChangeExemptions.has(route)) return next();
+
+  const authorization = req.headers.authorization;
+  const accessToken = typeof authorization === 'string' && authorization.startsWith('Bearer ')
+    ? authorization.slice(7)
+    : '';
+  if (!accessToken) return next();
+
+  try {
+    const { data: authData, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+    if (authError || !authData.user) return next();
+
+    const { data: profile, error: profileError } = await supabase
+      .from('users')
+      .select('uid,role,school_id,displayname,must_change_password')
+      .eq('uid', authData.user.id)
+      .maybeSingle();
+    if (profileError) return res.status(500).json({ error: 'Não foi possível verificar a política de senha.' });
+    if (!profile) return next();
+
+    res.locals.authenticatedUser = profile;
+    if (profile.must_change_password) {
+      return res.status(403).json({
+        error: 'Troque sua senha para continuar usando o sistema.',
+        code: 'PASSWORD_CHANGE_REQUIRED'
+      });
+    }
+    next();
+  } catch {
+    return res.status(500).json({ error: 'Não foi possível verificar a política de senha.' });
+  }
+});
+
 app.post('/api/auth/register', (_req, res) => {
   res.status(403).json({ error: 'Cadastro público desativado. Peça à direção pedagógica para criar seu acesso.' });
 });
@@ -383,6 +464,12 @@ app.get(['/api/schools/public', '/api/public/schools'], async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   let { email, password } = req.body;
   email = sanitizeEmail(email);
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const rateLimitKey = createHash('sha256').update(`${email}\0${ip}`).digest('hex');
+  if (!checkRateLimit(`login:${rateLimitKey}`, 5, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: 'Credenciais inválidas' });
+  }
+
   const schoolId = typeof req.body.schoolId === 'string' ? req.body.schoolId : '';
   if (!schoolId) return res.status(400).json({ error: 'Selecione sua escola para continuar.' });
 
@@ -397,11 +484,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
   if (!selectedSchool || !selectedSchool.active) return res.status(401).json({ error: 'Credenciais inválidas' });
 
-  // Rate-limit: máx 5 tentativas por minuto por email
-  if (!checkRateLimit(`login:${email}`, 5, 60000)) {
-    return res.status(429).json({ error: 'Muitas tentativas de login. Tente novamente em 1 minuto.' });
-  }
-
   const { data: authData, error: authError } = await supabaseAuth.auth.signInWithPassword({ email, password });
   if (authError || !authData.user) return res.status(401).json({ error: 'Credenciais inválidas' });
 
@@ -410,7 +492,7 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { data, error: userError } = await supabase
       .from('users')
-      .select('uid,email,displayname,role,subject,school_id')
+      .select('uid,email,displayname,role,subject,school_id,must_change_password,password_set_by')
       .eq('uid', authData.user.id)
       .maybeSingle();
 
@@ -463,7 +545,6 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(401).json({ error: 'Credenciais inválidas' });
   }
 
-  console.log('[LOGIN] User found, role:', userData.role);
   res.locals.systemLogActor = {
     uid: userData.uid,
     role: userData.role,
@@ -495,7 +576,7 @@ app.post('/api/auth/refresh', async (req, res) => {
 
 app.post('/api/users/create', async (req, res) => {
   let { email, password, displayName, subject, role, schoolId } = req.body;
-  const creator = await validateUserPermission(req);
+  const creator = await validateUserPermission(req, res);
   if (!creator) return res.status(401).json({ error: 'Não autorizado' });
   const { role: userRole, school_id: userSchoolId } = creator;
 
@@ -514,6 +595,9 @@ app.post('/api/users/create', async (req, res) => {
 
   if (!email || !password || !displayName || !role) {
     return res.status(400).json({ error: 'Email, senha, nome e cargo são obrigatórios' });
+  }
+  if (!isStrongPassword(password)) {
+    return res.status(400).json({ error: 'A senha deve ter no mínimo 8 caracteres, com pelo menos uma letra e um número.' });
   }
 
   if (!VALID_ROLES.includes(role)) {
@@ -563,11 +647,10 @@ app.post('/api/users/create', async (req, res) => {
     });
 
     if (authError) {
-      console.error('[CREATE_USER] Auth error:', authError);
       return res.status(400).json({
         error: authError.message === 'A user with this email address has already been registered'
           ? 'Email já cadastrado'
-          : `Erro ao criar usuário: ${authError.message}`
+          : 'Erro ao criar usuário.'
       });
     }
 
@@ -581,9 +664,11 @@ app.post('/api/users/create', async (req, res) => {
         displayname: displayName,
         role,
         subject: subject || null,
-        school_id: finalSchoolId
+        school_id: finalSchoolId,
+        must_change_password: true,
+        password_set_by: creator.uid
       })
-      .select('uid,email,displayname,role,subject,school_id')
+      .select('uid,email,displayname,role,subject,school_id,must_change_password,password_set_by')
       .single();
 
     if (insertError) {
@@ -606,14 +691,13 @@ app.post('/api/users/create', async (req, res) => {
     }
 
     res.json(transformKeys(userData));
-  } catch (err) {
-    console.error('[CREATE_USER] Error:', err);
+  } catch {
     res.status(500).json({ error: 'Erro ao criar usuário' });
   }
 });
 
 app.get('/api/schedules', async (req, res) => {
-  const userInfo = await validateUserPermission(req);
+  const userInfo = await validateUserPermission(req, res);
   if (!userInfo) {
     return res.status(401).json({ error: 'Não autorizado' });
   }
@@ -926,13 +1010,14 @@ app.delete('/api/users/:uid', async (req, res) => {
 });
 
 // Server-side permission validation
-type AppRole = 'teacher' | 'diretor' | 'dev';
+type AppRole = PasswordRole;
 
 interface UserInfo {
   uid: string;
   role: AppRole;
   school_id?: string;
   displayname?: string;
+  must_change_password?: boolean;
 }
 
 const VALID_ROLES: AppRole[] = ['teacher', 'diretor', 'dev'];
@@ -940,7 +1025,7 @@ const VALID_ROLES: AppRole[] = ['teacher', 'diretor', 'dev'];
 const getUserFromDB = async (uid: string): Promise<UserInfo | null> => {
   const { data, error } = await supabase
     .from('users')
-    .select('uid,role,school_id,displayname')
+    .select('uid,role,school_id,displayname,must_change_password')
     .eq('uid', uid)
     .maybeSingle();
 
@@ -952,7 +1037,12 @@ const getUserFromDB = async (uid: string): Promise<UserInfo | null> => {
   return data as UserInfo | null;
 };
 
-const validateUserPermission = async (req: any, requiredRole?: string[]): Promise<UserInfo | null> => {
+const validateUserPermission = async (req: any, res: any, requiredRole?: string[]): Promise<UserInfo | null> => {
+  const cachedUser = res.locals.authenticatedUser as UserInfo | undefined;
+  if (cachedUser) {
+    return requiredRole && !requiredRole.includes(cachedUser.role) ? null : cachedUser;
+  }
+
   const authorization = req.headers.authorization as string | undefined;
   const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
 
@@ -971,7 +1061,7 @@ const validateUserPermission = async (req: any, requiredRole?: string[]): Promis
 };
 
 const requireRole = async (req: any, res: any, allowedRoles: AppRole[]): Promise<UserInfo | null> => {
-  const userInfo = await validateUserPermission(req);
+  const userInfo = await validateUserPermission(req, res);
   if (!userInfo) {
     res.status(401).json({ error: 'Não autorizado' });
     return null;
@@ -982,6 +1072,234 @@ const requireRole = async (req: any, res: any, allowedRoles: AppRole[]): Promise
   }
   return userInfo;
 };
+
+const recordPasswordAudit = async (
+  actor: UserInfo,
+  route: string,
+  targetUid: string | null,
+  details: Record<string, string | number | null>,
+  statusCode = 200
+) => supabase.from('dev_audit_logs').insert({
+  actor_uid: actor.uid,
+  actor_role: actor.role,
+  method: 'POST',
+  route,
+  status_code: statusCode,
+  target_uid: targetUid,
+  details
+});
+
+app.get('/api/users/password-policy', async (req, res) => {
+  const actor = await requireRole(req, res, ['dev', 'diretor']);
+  if (!actor) return;
+  res.json({
+    teacher: Boolean(defaultPasswords.teacher),
+    diretor: Boolean(defaultPasswords.diretor),
+    dev: actor.role === 'dev' && Boolean(defaultPasswords.dev)
+  });
+});
+
+app.post('/api/users/:uid/password', async (req, res) => {
+  const actor = await requireRole(req, res, ['dev', 'diretor']);
+  if (!actor) return;
+  if (req.params.uid === actor.uid) {
+    return res.status(403).json({ error: 'Use a troca de senha da própria conta.' });
+  }
+
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body) ||
+      Object.keys(body).some(key => !['mode', 'password'].includes(key)) ||
+      !['custom', 'default'].includes(body.mode)) {
+    return res.status(400).json({ error: 'Informe um modo de alteração de senha válido.' });
+  }
+
+  const { data: target, error: targetError } = await supabase
+    .from('users')
+    .select('uid,role,school_id,must_change_password,password_set_by')
+    .eq('uid', req.params.uid)
+    .maybeSingle();
+  if (targetError) return res.status(500).json({ error: 'Não foi possível verificar o usuário.' });
+  if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+  if (actor.role === 'diretor' &&
+      (target.role === 'dev' || !actor.school_id || target.school_id !== actor.school_id)) {
+    return res.status(403).json({ error: 'Diretores só podem alterar contas da própria escola.' });
+  }
+
+  let newPassword: string;
+  if (body.mode === 'custom') {
+    if (typeof body.password !== 'string' || !isStrongPassword(body.password)) {
+      return res.status(400).json({ error: 'A senha deve ter no mínimo 8 caracteres, com pelo menos uma letra e um número.' });
+    }
+    newPassword = body.password;
+  } else {
+    const role = target.role as PasswordRole;
+    if (!Object.prototype.hasOwnProperty.call(defaultPasswords, role)) {
+      return res.status(400).json({ error: 'Não há senha padrão para este perfil.' });
+    }
+    const configuredPassword = defaultPasswords[role];
+    if (!configuredPassword) return res.status(503).json({ error: 'A senha padrão deste perfil não está configurada.' });
+    newPassword = configuredPassword;
+  }
+
+  const { error: policyError } = await supabase
+    .from('users')
+    .update({ must_change_password: true, password_set_by: actor.uid })
+    .eq('uid', target.uid);
+  if (policyError) return res.status(500).json({ error: 'Não foi possível atualizar a política de senha.' });
+
+  const { error: authUpdateError } = await supabase.auth.admin.updateUserById(target.uid, { password: newPassword });
+  if (authUpdateError) {
+    const { error: rollbackError } = await supabase
+      .from('users')
+      .update({
+        must_change_password: target.must_change_password,
+        password_set_by: target.password_set_by
+      })
+      .eq('uid', target.uid);
+    if (rollbackError) {
+      return res.status(500).json({ error: 'Não foi possível concluir a alteração da senha. Contate o desenvolvedor.' });
+    }
+    return res.status(400).json({ error: 'Não foi possível alterar a senha.' });
+  }
+
+  const { error: auditError } = await recordPasswordAudit(
+    actor,
+    `/api/users/${target.uid}/password`,
+    target.uid,
+    { event: 'password_changed' }
+  );
+  if (auditError) return res.status(500).json({ error: 'Senha alterada, mas não foi possível registrar a auditoria.' });
+
+  res.json({ status: 'success', mustChangePassword: true });
+});
+
+app.post('/api/users/password/bulk-default', async (req, res) => {
+  const actor = await requireRole(req, res, ['dev', 'diretor']);
+  if (!actor) return;
+  const { role, schoolId, confirm } = req.body || {};
+  if (!['teacher', 'diretor'].includes(role) || (schoolId !== undefined && typeof schoolId !== 'string')) {
+    return res.status(400).json({ error: 'Informe um perfil e uma escola válidos.' });
+  }
+  if (confirm !== 'APLICAR') return res.status(400).json({ error: 'Digite APLICAR para confirmar a operação.' });
+  if (actor.role === 'diretor' && (!actor.school_id || (schoolId && schoolId !== actor.school_id))) {
+    return res.status(403).json({ error: 'Diretores só podem aplicar a senha padrão na própria escola.' });
+  }
+
+  const configuredPassword = defaultPasswords[role as 'teacher' | 'diretor'];
+  if (!configuredPassword) return res.status(503).json({ error: 'A senha padrão deste perfil não está configurada.' });
+
+  const requestedSchoolId = actor.role === 'diretor' ? actor.school_id : schoolId;
+  if (requestedSchoolId) {
+    const { data: school, error: schoolError } = await supabase
+      .from('schools')
+      .select('id')
+      .eq('id', requestedSchoolId)
+      .maybeSingle();
+    if (schoolError) return res.status(500).json({ error: 'Não foi possível verificar a escola.' });
+    if (!school) return res.status(400).json({ error: 'Escola não encontrada.' });
+  }
+
+  let query = supabase
+    .from('users')
+    .select('uid,must_change_password,password_set_by')
+    .eq('role', role)
+    .neq('uid', actor.uid);
+  if (requestedSchoolId) query = query.eq('school_id', requestedSchoolId);
+  const { data: targets, error: targetsError } = await query;
+  if (targetsError) return res.status(500).json({ error: 'Não foi possível localizar os usuários.' });
+
+  let updated = 0;
+  let failed = false;
+  for (const target of targets || []) {
+    const { error: policyError } = await supabase
+      .from('users')
+      .update({ must_change_password: true, password_set_by: actor.uid })
+      .eq('uid', target.uid);
+    if (policyError) {
+      failed = true;
+      continue;
+    }
+
+    const { error: authUpdateError } = await supabase.auth.admin.updateUserById(target.uid, {
+      password: configuredPassword
+    });
+    if (authUpdateError) {
+      const { error: rollbackError } = await supabase
+        .from('users')
+        .update({
+          must_change_password: target.must_change_password,
+          password_set_by: target.password_set_by
+        })
+        .eq('uid', target.uid);
+      if (rollbackError) failed = true;
+      failed = true;
+      continue;
+    }
+    updated += 1;
+  }
+
+  const { error: auditError } = await recordPasswordAudit(
+    actor,
+    '/api/users/password/bulk-default',
+    null,
+    { event: 'bulk_default_password_applied', role, school_id: requestedSchoolId || null, count: updated },
+    failed ? 207 : 200
+  );
+  if (auditError) return res.status(500).json({ error: 'Não foi possível registrar a auditoria do lote.', updated });
+  if (failed) {
+    return res.status(207).json({ error: 'A operação foi concluída parcialmente.', updated });
+  }
+  res.json({ updated });
+});
+
+app.patch('/api/auth/password', async (req, res) => {
+  const actor = await requireRole(req, res, ['dev', 'diretor', 'teacher']);
+  if (!actor) return;
+  const { currentPassword, newPassword } = req.body || {};
+  if (typeof currentPassword !== 'string' || !currentPassword ||
+      typeof newPassword !== 'string' || !isStrongPassword(newPassword)) {
+    return res.status(400).json({ error: 'A nova senha deve ter no mínimo 8 caracteres, com pelo menos uma letra e um número.' });
+  }
+
+  if (newPassword === defaultPasswords[actor.role]) {
+    return res.status(400).json({ error: 'A nova senha não pode ser a senha padrão do seu perfil.' });
+  }
+
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const changeLimitKey = createHash('sha256').update(`${actor.uid}\0${ip}`).digest('hex');
+  if (!checkRateLimit(`password-change:${changeLimitKey}`, 5, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: 'Credenciais inválidas' });
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('users')
+    .select('email')
+    .eq('uid', actor.uid)
+    .maybeSingle();
+  if (profileError || !profile?.email) return res.status(500).json({ error: 'Não foi possível verificar a conta.' });
+
+  const { data: verified, error: verifyError } = await supabaseAuth.auth.signInWithPassword({
+    email: profile.email,
+    password: currentPassword
+  });
+  if (verifyError || verified.user?.id !== actor.uid) {
+    return res.status(401).json({ error: 'Credenciais inválidas' });
+  }
+
+  const { error: authUpdateError } = await supabase.auth.admin.updateUserById(actor.uid, {
+    password: newPassword
+  });
+  if (authUpdateError) return res.status(400).json({ error: 'Não foi possível atualizar a senha.' });
+
+  const { error: policyError } = await supabase
+    .from('users')
+    .update({ must_change_password: false })
+    .eq('uid', actor.uid);
+  if (policyError) return res.status(500).json({ error: 'Senha alterada, mas não foi possível concluir a atualização da conta.' });
+
+  res.json({ status: 'success', mustChangePassword: false });
+});
 
 type EditableUserField = 'email' | 'displayName' | 'subject' | 'role' | 'schoolId';
 type UserProfileChanges = Partial<Record<EditableUserField, string | null>>;
@@ -1953,7 +2271,7 @@ app.get('/api/school-subjects', async (req, res) => {
 });
 
 const requireSubjectManager = async (req: any, res: any): Promise<UserInfo | null> => {
-  const userInfo = await validateUserPermission(req);
+  const userInfo = await validateUserPermission(req, res);
   if (!userInfo) {
     res.status(401).json({ error: 'Não autorizado' });
     return null;
@@ -2232,7 +2550,7 @@ app.delete('/api/school-class-groups/:id/teachers/:teacherId', async (req, res) 
 });
 
 app.get('/api/teachers/:uid/class-groups', async (req, res) => {
-  const userInfo = await validateUserPermission(req);
+  const userInfo = await validateUserPermission(req, res);
   if (!userInfo) return res.status(401).json({ error: 'Não autorizado' });
   if (userInfo.role === 'teacher' && req.params.uid !== userInfo.uid) {
     return res.status(403).json({ error: 'Acesso negado' });
@@ -2323,7 +2641,7 @@ app.delete('/api/teachers/:uid/class-groups/:classGroup', async (req, res) => {
 
 // Teacher subject endpoints retained for the teacher's "Minhas Matérias" view.
 app.get('/api/teachers/:uid/subjects', async (req, res) => {
-  const userInfo = await validateUserPermission(req);
+  const userInfo = await validateUserPermission(req, res);
   if (!userInfo) return res.status(401).json({ error: 'Não autorizado' });
   if (userInfo.role === 'teacher' && req.params.uid !== userInfo.uid) {
     return res.status(403).json({ error: 'Acesso negado' });

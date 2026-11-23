@@ -96,6 +96,38 @@ const showDialog = (message, { confirm = false, title = 'Studia' } = {}) => new 
   overlay.querySelector('[data-dialog-ok]').focus();
 });
 
+const showPasswordSuccessDialog = (message, password) => {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(15,23,42,.55);backdrop-filter:blur(5px);font-family:system-ui,sans-serif;';
+  overlay.innerHTML = `
+    <section role="dialog" aria-modal="true" class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+      <h3 class="text-lg font-black text-slate-900">Senha atualizada</h3>
+      <p data-password-success-message class="mt-3 text-sm leading-6 text-slate-600"></p>
+      <div class="mt-6 flex justify-end gap-3">
+        ${password ? '<button data-password-copy type="button" class="rounded-lg border border-blue-200 px-4 py-2 text-sm font-bold text-blue-700 hover:bg-blue-50">Copiar senha</button>' : ''}
+        <button data-password-success-close type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Concluir</button>
+      </div>
+    </section>`;
+  overlay.querySelector('[data-password-success-message]').textContent = message;
+  const close = () => overlay.remove();
+  overlay.querySelector('[data-password-success-close]').addEventListener('click', close);
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector('[data-password-copy]')?.addEventListener('click', async event => {
+    const copyButton = event.currentTarget;
+    try {
+      await navigator.clipboard.writeText(password);
+      copyButton.remove();
+      overlay.querySelector('[data-password-success-message]').textContent += ' Senha copiada para a área de transferência.';
+    } catch {
+      showDialog('Não foi possível copiar a senha neste navegador. Feche esta janela e defina uma nova senha manualmente, se necessário.');
+    }
+  });
+  document.body.appendChild(overlay);
+  overlay.querySelector('[data-password-success-close]').focus();
+};
+
 // --- STATE ---
 let user = null;
 try {
@@ -106,9 +138,23 @@ try {
 } catch (e) {
   console.error("Error parsing user from localStorage:", e);
 }
+let passwordChangeRequired = false;
+const persistUserSession = () => {
+  if (!user) return;
+  const savedUser = { ...user };
+  delete savedUser.mustChangePassword;
+  delete savedUser.passwordSetBy;
+  localStorage.setItem('user', JSON.stringify(savedUser));
+};
 let schedules = [];
 let teachers = [];
 let allUsers = [];
+let passwordPolicy = { teacher: false, diretor: false, dev: false };
+let managingPasswordUserId = null;
+let managedPasswordMode = 'custom';
+let bulkPasswordModalOpen = false;
+let bulkPasswordRole = 'teacher';
+let bulkPasswordSchoolId = '';
 let selectedUserIds = new Set();
 let editingTeacherSubjectsId = null;
 let editingUserId = null;
@@ -264,7 +310,7 @@ const api = {
         const refreshed = await refreshResponse.json();
         if (refreshResponse.ok) {
           user = { ...user, accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken };
-          localStorage.setItem('user', JSON.stringify(user));
+          persistUserSession();
           const retryHeaders = {
             'Content-Type': 'application/json',
             ...options.headers,
@@ -292,6 +338,13 @@ const api = {
     } catch (parseErr) {
       console.error("Parse error:", parseErr);
       throw new Error(`Resposta inválida do servidor de API (${fullUrl}).`);
+    }
+
+    if (!res.ok && result.code === 'PASSWORD_CHANGE_REQUIRED' && user) {
+      passwordChangeRequired = true;
+      user = { ...user, mustChangePassword: true };
+      persistUserSession();
+      render(PasswordChangeView());
     }
 
     if (!res.ok) throw new Error(result.error || `Erro ${res.status}`);
@@ -1818,7 +1871,7 @@ const CreateUserModal = ({ viewerRole = 'dev' } = {}) => `
         </div>
         <div>
           <label class="text-xs font-bold text-slate-500 uppercase block mb-2">Senha</label>
-          <input type="password" id="user-password" placeholder="Mínimo 8 caracteres" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required minlength="8">
+          <input type="password" id="user-password" placeholder="8 caracteres, com letra e número" class="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-lg outline-none font-medium text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900" required minlength="8">
         </div>
         ${viewerRole === 'dev' ? `
           <div>
@@ -2619,6 +2672,7 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
   const selectableUserIds = users.filter(account => account.uid !== user?.uid).map(account => account.uid);
   const selectedCount = selectableUserIds.filter(uid => selectedUserIds.has(uid)).length;
   const allUsersSelected = selectableUserIds.length > 0 && selectedCount === selectableUserIds.length;
+  const passwordManagedUser = allVisibleUsers.find(account => account.uid === managingPasswordUserId);
 
   const roleOptions = canManageAllRoles
     ? ['teacher', 'diretor', 'dev']
@@ -2632,6 +2686,9 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
           <p class="text-sm text-slate-500 font-medium">${canManageAllRoles ? 'Todas as contas cadastradas no sistema.' : 'Direção pedagógica e professores cadastrados na sua escola.'}</p>
         </div>
         <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+          <button type="button" onclick="actions.openBulkPasswordModal()" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-800 hover:bg-amber-100">
+            Aplicar senha padrão a todos
+          </button>
           ${(canManageAllRoles || viewerRole === 'diretor') ? `
             <button onclick="actions.showCreateUserModal('${viewerRole}')" class="bg-blue-600 hover:bg-blue-700 transition-all text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 text-sm shadow-md">
               <i data-lucide="plus" class="w-4 h-4"></i> Criar Usuário
@@ -2735,6 +2792,15 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
                     >
                       <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Editar
                     </button>
+                    ${u.uid !== user?.uid ? `
+                      <button
+                        type="button"
+                        onclick="actions.openPasswordModal('${u.uid}')"
+                        class="mr-2 inline-flex items-center gap-2 rounded-xl border border-amber-200 px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-50"
+                      >
+                        <i data-lucide="key-round" class="w-3.5 h-3.5"></i> Definir senha
+                      </button>
+                    ` : ''}
                     <button
                       onclick="actions.deleteUser('${u.uid}', '${(u.displayName || 'Usuário').replace(/'/g, "\\'")}', '${u.email || 'usuário'}')"
                       class="inline-flex items-center gap-2 rounded-xl border ${u.uid === user?.uid ? 'border-slate-200 text-slate-400 cursor-not-allowed' : 'border-rose-200 text-rose-600 hover:bg-rose-50'} px-3 py-2 text-xs font-bold disabled:opacity-60"
@@ -2874,6 +2940,98 @@ const UsersTab = ({ viewerRole = 'diretor' } = {}) => {
                 <button type="button" onclick="actions.closeEditUserModal()" class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
                 <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Salvar alterações</button>
               </footer>
+            </form>
+          </section>
+        </div>
+      ` : ''}
+      ${passwordManagedUser ? `
+        <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4" role="presentation">
+          <section class="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="manage-password-title">
+            <header class="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
+              <div>
+                <h4 id="manage-password-title" class="text-lg font-black text-slate-900">Definir senha</h4>
+                <p class="mt-1 text-sm font-medium text-slate-500">${escapeHtml(passwordManagedUser.displayName || passwordManagedUser.email || 'Conta')}</p>
+              </div>
+              <button type="button" onclick="actions.closePasswordModal()" class="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Fechar definição de senha">
+                <i data-lucide="x" class="h-5 w-5"></i>
+              </button>
+            </header>
+            <div class="space-y-4 p-5">
+              <div class="grid gap-3 sm:grid-cols-2">
+                <button type="button" onclick="actions.setManagedPasswordMode('custom')" aria-pressed="${managedPasswordMode === 'custom'}" class="rounded-xl border p-4 text-left ${managedPasswordMode === 'custom' ? 'border-blue-500 bg-blue-50 text-blue-900' : 'border-slate-200 text-slate-700'}">
+                  <span class="block text-sm font-black">Definir senha manualmente</span>
+                  <span class="mt-1 block text-xs">Escolha uma senha temporária.</span>
+                </button>
+                <button type="button" onclick="actions.setManagedPasswordMode('default')" aria-pressed="${managedPasswordMode === 'default'}" class="rounded-xl border p-4 text-left ${managedPasswordMode === 'default' ? 'border-blue-500 bg-blue-50 text-blue-900' : 'border-slate-200 text-slate-700'}" ${passwordPolicy[passwordManagedUser.role] ? '' : 'disabled'}>
+                  <span class="block text-sm font-black">Aplicar senha padrão</span>
+                  <span class="mt-1 block text-xs">${ROLE_META[passwordManagedUser.role]?.label || 'Perfil'}${passwordPolicy[passwordManagedUser.role] ? '' : ' — não configurada'}</span>
+                </button>
+              </div>
+              ${managedPasswordMode === 'custom' ? `
+                <form onsubmit="actions.submitUserPassword(event, '${passwordManagedUser.uid}')" class="space-y-4">
+                  <label class="block text-xs font-bold text-slate-600">
+                    Nova senha temporária
+                    <div class="mt-1 flex rounded-xl border border-slate-200 bg-slate-50 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500">
+                      <input id="managed-password" type="password" autocomplete="new-password" minlength="8" required oninput="actions.updatePasswordStrength('managed-password')" class="min-w-0 flex-1 rounded-l-xl bg-transparent px-4 py-3 text-sm text-slate-900 outline-none">
+                      <button type="button" onclick="actions.togglePasswordVisibility('managed-password')" class="px-4 text-xs font-bold text-blue-700">Mostrar</button>
+                    </div>
+                  </label>
+                  <p id="managed-password-strength" class="text-xs font-semibold text-slate-500">A senha deve ter pelo menos 8 caracteres, uma letra e um número.</p>
+                  <div class="flex justify-end gap-3 border-t border-slate-200 pt-4">
+                    <button type="button" onclick="actions.closePasswordModal()" class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600">Cancelar</button>
+                    <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">Definir senha</button>
+                  </div>
+                </form>
+              ` : `
+                <div class="space-y-4">
+                  <p class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                    Será aplicada a senha padrão da categoria ${escapeHtml(ROLE_META[passwordManagedUser.role]?.label || passwordManagedUser.role)}. O usuário terá que trocá-la no próximo acesso.
+                  </p>
+                  <div class="flex justify-end gap-3 border-t border-slate-200 pt-4">
+                    <button type="button" onclick="actions.closePasswordModal()" class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600">Cancelar</button>
+                    <button type="button" onclick="actions.submitUserPassword(null, '${passwordManagedUser.uid}')" ${passwordPolicy[passwordManagedUser.role] ? '' : 'disabled'} class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50">Aplicar senha padrão</button>
+                  </div>
+                </div>
+              `}
+            </div>
+          </section>
+        </div>
+      ` : ''}
+      ${bulkPasswordModalOpen ? `
+        <div class="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/60 p-4" role="presentation">
+          <section class="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="bulk-password-title">
+            <header class="border-b border-slate-200 p-5">
+              <h4 id="bulk-password-title" class="text-lg font-black text-slate-900">Aplicar senha padrão em lote</h4>
+              <p class="mt-1 text-sm font-medium text-slate-500">Todos os usuários do perfil e da escola escolhidos precisarão trocar a senha no próximo acesso.</p>
+            </header>
+            <form onsubmit="actions.applyBulkDefaultPasswords(event)" class="space-y-4 p-5">
+              <label class="block text-xs font-bold text-slate-600">
+                Categoria
+                <select onchange="actions.setBulkPasswordRole(this.value)" class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800">
+                  <option value="teacher" ${bulkPasswordRole === 'teacher' ? 'selected' : ''} ${passwordPolicy.teacher ? '' : 'disabled'}>Professor${passwordPolicy.teacher ? '' : ' — padrão não configurado'}</option>
+                  <option value="diretor" ${bulkPasswordRole === 'diretor' ? 'selected' : ''} ${passwordPolicy.diretor ? '' : 'disabled'}>Diretor${passwordPolicy.diretor ? '' : ' — padrão não configurado'}</option>
+                </select>
+              </label>
+              ${canManageAllRoles ? `
+                <label class="block text-xs font-bold text-slate-600">
+                  Escola
+                  <select onchange="actions.setBulkPasswordSchool(this.value)" class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800">
+                    <option value="" ${bulkPasswordSchoolId ? '' : 'selected'}>Todas as escolas</option>
+                    ${schools.map(school => `<option value="${escapeHtml(school.id)}" ${bulkPasswordSchoolId === school.id ? 'selected' : ''}>${escapeHtml(school.name)}</option>`).join('')}
+                  </select>
+                </label>
+              ` : `<p class="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-600">Escola: ${escapeHtml(schools.find(school => school.id === user?.school_id)?.name || 'Sua escola')}</p>`}
+              <p class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                ${passwordPolicy[bulkPasswordRole] ? 'Esta ação altera a senha de todas as contas correspondentes e não pode ser desfeita.' : 'A senha padrão desta categoria não está configurada; a ação está desabilitada.'}
+              </p>
+              <label class="block text-xs font-bold text-slate-600">
+                Digite APLICAR para confirmar
+                <input id="bulk-password-confirm" type="text" autocomplete="off" oninput="actions.validateBulkPasswordConfirmation()" class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+              </label>
+              <div class="flex justify-end gap-3 border-t border-slate-200 pt-4">
+                <button type="button" onclick="actions.closeBulkPasswordModal()" class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600">Cancelar</button>
+                <button id="bulk-password-apply" type="submit" disabled class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50">Aplicar a todos</button>
+              </div>
             </form>
           </section>
         </div>
@@ -3776,6 +3934,33 @@ const slidesContent = [
     }
 ];
 
+const PasswordChangeView = () => `
+  <main class="fixed inset-0 z-[100000] flex items-center justify-center overflow-y-auto bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-labelledby="password-change-title">
+    <section class="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-8">
+      <div class="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+        <i data-lucide="shield-check" class="h-6 w-6"></i>
+      </div>
+      <h1 id="password-change-title" class="text-2xl font-black text-slate-900">Troque sua senha para continuar</h1>
+      <p class="mt-2 text-sm leading-6 text-slate-600">Sua senha foi definida pelo sistema ou por um administrador. Informe a senha atual e crie uma nova senha pessoal.</p>
+      <form onsubmit="actions.changeOwnPassword(event)" class="mt-6 space-y-4">
+        <label class="block text-xs font-bold text-slate-600">
+          Senha atual
+          <input id="current-password" type="password" autocomplete="current-password" required class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+        </label>
+        <label class="block text-xs font-bold text-slate-600">
+          Nova senha
+          <div class="mt-1 flex rounded-xl border border-slate-200 bg-slate-50 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500">
+            <input id="new-password" type="password" autocomplete="new-password" minlength="8" required oninput="actions.updatePasswordStrength('new-password')" class="min-w-0 flex-1 rounded-l-xl bg-transparent px-4 py-3 text-sm text-slate-900 outline-none">
+            <button type="button" onclick="actions.togglePasswordVisibility('new-password')" class="px-4 text-xs font-bold text-blue-700">Mostrar</button>
+          </div>
+        </label>
+        <p id="new-password-strength" class="text-xs font-semibold text-slate-500">A senha deve ter pelo menos 8 caracteres, uma letra e um número.</p>
+        <button type="submit" class="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-700">Atualizar senha e continuar</button>
+      </form>
+    </section>
+  </main>
+`;
+
 // --- ACTIONS ---
 const TAB_ACCESS = {
   dev: ['overview', 'dev_health', 'dev_diagnostics', 'dev_system_logs', 'dev_audit', 'dev_data', 'escolas', 'materias', 'turmas', 'usuarios'],
@@ -3856,7 +4041,7 @@ const actions = {
   },
 
   switchTabMobile(tab) {
-    if (!TAB_ACCESS[user?.role]?.includes(tab)) return;
+    if (passwordChangeRequired || user?.mustChangePassword || !TAB_ACCESS[user?.role]?.includes(tab)) return;
     currentTab = tab;
     mobileMenuOpen = false;
     this.init();
@@ -3888,6 +4073,8 @@ const actions = {
       }
       if (!user) {
         render(LandingView());
+      } else if (passwordChangeRequired || user.mustChangePassword) {
+        render(PasswordChangeView());
       } else {
         if (user.role === 'dev') {
           render(DeveloperView());
@@ -3909,6 +4096,8 @@ const actions = {
     try {
       if (!user) {
         render(LandingView());
+      } else if (passwordChangeRequired || user.mustChangePassword) {
+        render(PasswordChangeView());
       } else {
         if (!TAB_ACCESS[user.role]?.includes(currentTab)) {
           currentTab = TAB_ACCESS[user.role]?.[0] || 'horarios';
@@ -4268,7 +4457,7 @@ const actions = {
   },
 
   switchTab(tab) {
-    if (!TAB_ACCESS[user?.role]?.includes(tab)) return;
+    if (passwordChangeRequired || user?.mustChangePassword || !TAB_ACCESS[user?.role]?.includes(tab)) return;
     currentTab = tab;
     this.init();
   },
@@ -4406,7 +4595,8 @@ const actions = {
     
     try {
       user = await api.post('/api/auth/login', { email, password, schoolId });
-      localStorage.setItem('user', JSON.stringify(user));
+      passwordChangeRequired = Boolean(user.mustChangePassword);
+      persistUserSession();
       currentTab = user.role === 'teacher' ? 'dashboard' : 'horarios';
       teacherScheduleDate = '';
       authMode = 'closed';
@@ -4416,9 +4606,55 @@ const actions = {
     }
   },
 
+  updatePasswordStrength(inputId) {
+    const password = $(`#${inputId}`)?.value || '';
+    const indicatorId = inputId === 'managed-password' ? 'managed-password-strength' : 'new-password-strength';
+    const indicator = $(`#${indicatorId}`);
+    if (!indicator) return;
+    const requirements = [
+      password.length >= 8,
+      /\p{L}/u.test(password),
+      /\d/.test(password)
+    ];
+    indicator.textContent = requirements.every(Boolean)
+      ? 'Força adequada: mínimo, letra e número atendidos.'
+      : `Requisitos atendidos: ${requirements.filter(Boolean).length} de 3 (8 caracteres, letra e número).`;
+    indicator.className = `text-xs font-semibold ${requirements.every(Boolean) ? 'text-emerald-700' : 'text-amber-700'}`;
+  },
+
+  togglePasswordVisibility(inputId) {
+    const input = $(`#${inputId}`);
+    if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    const button = input.parentElement?.querySelector('button');
+    if (button) button.textContent = show ? 'Ocultar' : 'Mostrar';
+  },
+
+  async changeOwnPassword(event) {
+    event.preventDefault();
+    const currentPassword = $('#current-password')?.value || '';
+    const newPassword = $('#new-password')?.value || '';
+    if (newPassword.length < 8 || !/\p{L}/u.test(newPassword) || !/\d/.test(newPassword)) {
+      return showDialog('A nova senha deve ter no mínimo 8 caracteres, com pelo menos uma letra e um número.');
+    }
+
+    try {
+      await api.patch('/api/auth/password', { currentPassword, newPassword });
+      passwordChangeRequired = false;
+      user = { ...user, mustChangePassword: false };
+      persistUserSession();
+      await this.init();
+      showDialog('Senha atualizada. Você já pode usar o sistema.');
+    } catch (error) {
+      showDialog(error.message || 'Não foi possível atualizar a senha.');
+    }
+  },
+
   logout() {
     localStorage.removeItem('user');
     user = null;
+    passwordChangeRequired = false;
     currentTab = 'dashboard';
     teacherScheduleDate = '';
     teacherAvailability = [];
@@ -4426,6 +4662,130 @@ const actions = {
     teacherAvailabilityError = '';
     authMode = 'closed';
     this.init();
+  },
+
+  openPasswordModal(uid) {
+    if (!user || !['dev', 'diretor'].includes(user.role) || uid === user.uid) return;
+    const target = allUsers.find(account => account.uid === uid);
+    if (!target || (user.role === 'diretor' && (target.role === 'dev' || target.school_id !== user.school_id))) return;
+    managingPasswordUserId = uid;
+    managedPasswordMode = 'custom';
+    this.renderCurrentView();
+  },
+
+  closePasswordModal() {
+    managingPasswordUserId = null;
+    managedPasswordMode = 'custom';
+    this.renderCurrentView();
+  },
+
+  setManagedPasswordMode(mode) {
+    if (!['custom', 'default'].includes(mode)) return;
+    const target = allUsers.find(account => account.uid === managingPasswordUserId);
+    if (mode === 'default' && (!target || !passwordPolicy[target.role])) return;
+    managedPasswordMode = mode;
+    this.renderCurrentView();
+  },
+
+  async submitUserPassword(event, uid) {
+    event?.preventDefault();
+    const mode = managedPasswordMode;
+    const target = allUsers.find(account => account.uid === uid);
+    if (!target) return showDialog('Usuário não encontrado. Atualize a lista e tente novamente.');
+    let password;
+    if (mode === 'custom') {
+      password = $('#managed-password')?.value || '';
+      if (password.length < 8 || !/\p{L}/u.test(password) || !/\d/.test(password)) {
+        return showDialog('A senha deve ter no mínimo 8 caracteres, com pelo menos uma letra e um número.');
+      }
+    } else {
+      if (!passwordPolicy[target.role]) return showDialog('A senha padrão desta categoria não está configurada.');
+      const confirmed = await showDialog(
+        `Aplicar a senha padrão da categoria ${ROLE_META[target.role]?.label || target.role}? O usuário terá que trocá-la no próximo acesso.`,
+        { confirm: true, title: 'Confirmar senha padrão' }
+      );
+      if (!confirmed) return;
+    }
+
+    try {
+      await api.post(`/api/users/${encodeURIComponent(uid)}/password`, mode === 'custom'
+        ? { mode, password }
+        : { mode });
+      allUsers = allUsers.map(account => account.uid === uid
+        ? { ...account, mustChangePassword: true, passwordSetBy: user.uid }
+        : account);
+      managingPasswordUserId = null;
+      this.renderCurrentView();
+      showPasswordSuccessDialog(
+        mode === 'custom'
+          ? 'Senha definida com sucesso. Compartilhe-a de forma segura; o usuário precisará trocá-la no próximo acesso.'
+          : 'Senha padrão aplicada. O usuário precisará trocá-la no próximo acesso.',
+        mode === 'custom' ? password : null
+      );
+    } catch (error) {
+      showDialog(error.message || 'Não foi possível alterar a senha.');
+    }
+  },
+
+  openBulkPasswordModal() {
+    if (!user || !['dev', 'diretor'].includes(user.role)) return;
+    bulkPasswordRole = passwordPolicy.teacher
+      ? 'teacher'
+      : passwordPolicy.diretor
+        ? 'diretor'
+        : 'teacher';
+    bulkPasswordSchoolId = '';
+    bulkPasswordModalOpen = true;
+    this.renderCurrentView();
+  },
+
+  closeBulkPasswordModal() {
+    bulkPasswordModalOpen = false;
+    bulkPasswordSchoolId = '';
+    this.renderCurrentView();
+  },
+
+  setBulkPasswordRole(role) {
+    if (!['teacher', 'diretor'].includes(role)) return;
+    bulkPasswordRole = role;
+    this.renderCurrentView();
+  },
+
+  setBulkPasswordSchool(schoolId) {
+    if (user?.role !== 'dev') return;
+    bulkPasswordSchoolId = schoolId;
+    this.renderCurrentView();
+  },
+
+  validateBulkPasswordConfirmation() {
+    const button = $('#bulk-password-apply');
+    if (button) {
+      button.disabled = $('#bulk-password-confirm')?.value !== 'APLICAR' || !passwordPolicy[bulkPasswordRole];
+    }
+  },
+
+  async applyBulkDefaultPasswords(event) {
+    event.preventDefault();
+    if ($('#bulk-password-confirm')?.value !== 'APLICAR') {
+      return showDialog('Digite APLICAR para confirmar a operação.');
+    }
+    if (!passwordPolicy[bulkPasswordRole]) return showDialog('A senha padrão desta categoria não está configurada.');
+
+    const body = { role: bulkPasswordRole, confirm: 'APLICAR' };
+    if (user?.role === 'dev' && bulkPasswordSchoolId) body.schoolId = bulkPasswordSchoolId;
+    try {
+      const result = await api.post('/api/users/password/bulk-default', body);
+      bulkPasswordModalOpen = false;
+      await this.refreshData();
+      this.renderCurrentView();
+      if (result.error) {
+        showDialog(`${result.error} Contas atualizadas: ${result.updated}.`);
+      } else {
+        showDialog(`Senha padrão aplicada a ${result.updated} usuário(s). Será obrigatório trocar a senha no próximo acesso.`);
+      }
+    } catch (error) {
+      showDialog(error.message || 'Não foi possível aplicar a senha padrão em lote.');
+    }
   },
 
   normalizeSchedules(schedules) {
@@ -4468,9 +4828,10 @@ const actions = {
           api.get('/api/labs/bookings'),
           api.get('/api/schools'),
           api.get('/api/school-subjects'),
-          api.get('/api/school-class-groups')
+          api.get('/api/school-class-groups'),
+          api.get('/api/users/password-policy')
         ]);
-        const [s, t, u, lb, sc, subs, classGroups] = results.map((r, i) => r.status === 'fulfilled' ? r.value : (console.error(`Data fetch #${i} failed:`, r.reason), []));
+        const [s, t, u, lb, sc, subs, classGroups, policy] = results.map((r, i) => r.status === 'fulfilled' ? r.value : (console.error(`Data fetch #${i} failed:`, r.reason), []));
         schedules = this.normalizeSchedules(s || []);
         teachers = t || [];
         teacherAvailability = [];
@@ -4479,6 +4840,9 @@ const actions = {
         schools = sc || [];
         schoolSubjects = subs || [];
         schoolClassGroups = classGroups || [];
+        passwordPolicy = policy && !Array.isArray(policy)
+          ? { teacher: Boolean(policy.teacher), diretor: Boolean(policy.diretor), dev: Boolean(policy.dev) }
+          : { teacher: false, diretor: false, dev: false };
         if (!schools.some(school => school.id === subjectSchoolId)) {
           subjectSchoolId = user.school_id || schools[0]?.id || '';
         }
@@ -4500,10 +4864,16 @@ const actions = {
           api.get('/api/labs/bookings'),
           api.get('/api/school-subjects'),
           api.get('/api/school-class-groups'),
-          api.get('/api/school-periods')
+          api.get('/api/school-periods'),
+          api.get('/api/users/password-policy')
         ]);
         const [s, t, u, lb, subs, classGroups] = results.slice(0, 6).map((r, i) => r.status === 'fulfilled' ? r.value : (console.error(`Data fetch #${i} failed:`, r.reason), []));
         const periodResult = results[6];
+        const passwordPolicyResult = results[7];
+        const policy = passwordPolicyResult.status === 'fulfilled' ? passwordPolicyResult.value : null;
+        passwordPolicy = policy && !Array.isArray(policy)
+          ? { teacher: Boolean(policy.teacher), diretor: Boolean(policy.diretor), dev: false }
+          : { teacher: false, diretor: false, dev: false };
         schoolPeriods = periodResult.status === 'fulfilled' ? periodResult.value : [];
         if (periodResult.status === 'rejected') {
           console.error('School periods fetch failed:', periodResult.reason);
@@ -4682,7 +5052,7 @@ const actions = {
       const updatedUser = await api.patch(`/api/users/${uid}`, payload);
       if (uid === user?.uid) {
         user = { ...user, ...updatedUser };
-        localStorage.setItem('user', JSON.stringify(user));
+        persistUserSession();
       }
       editingUserId = null;
       await this.init();
@@ -5561,7 +5931,9 @@ const actions = {
     if (!displayName) return showDialog('Nome é obrigatório.');
     if (!email) return showDialog('E-mail é obrigatório.');
     if (!password) return showDialog('Senha é obrigatória.');
-    if (password.length < 8) return showDialog('Senha deve ter no mínimo 8 caracteres.');
+    if (password.length < 8 || !/\p{L}/u.test(password) || !/\d/.test(password)) {
+      return showDialog('A senha deve ter no mínimo 8 caracteres, com pelo menos uma letra e um número.');
+    }
     if (!role) return showDialog('Cargo é obrigatório.');
     if (user?.role === 'dev' && !schoolId) return showDialog('Selecione a escola do usuário.');
 

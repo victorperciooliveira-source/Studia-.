@@ -60,7 +60,11 @@ Rotas privadas validam o bearer token do Supabase Auth e o perfil no servidor po
 | `PATCH /api/school-periods/:id` / `DELETE /api/school-periods/:id` | Atualiza ou remove um período pertencente à escola da direção. |
 | `GET /api/schools/public` | Lista somente `id` e `name` das escolas ativas para o login, sem autenticação nem cache e com limite de requisições por IP. `/api/public/schools` permanece como alias compatível. |
 | `POST /api/auth/register` | Cadastro público desativado; responde `403`. |
-| `POST /api/auth/login` | Autentica com `supabaseAuth.auth.signInWithPassword`, exige uma escola ativa e confere o vínculo de professores/diretores; contas vinculadas a escolas inativas recebem `Credenciais inválidas`. |
+| `POST /api/auth/login` | Autentica com `supabaseAuth.auth.signInWithPassword`, exige uma escola ativa e confere o vínculo de professores/diretores; contas vinculadas a escolas inativas recebem `Credenciais inválidas`. Limita a 5 tentativas por e-mail e IP em 15 minutos e inclui `mustChangePassword` na resposta. |
+| `PATCH /api/auth/password` | Verifica a senha atual e troca a senha do próprio usuário; conclui a troca obrigatória quando `must_change_password` está ativo. |
+| `POST /api/users/:uid/password` | Define senha manual ou aplica a senha padrão do perfil, com acesso limitado a desenvolvedor ou direção da própria escola. |
+| `POST /api/users/password/bulk-default` | Aplica a senha padrão a usuários do perfil/escola selecionados após confirmação digitada. |
+| `GET /api/users/password-policy` | Retorna somente quais senhas padrão estão configuradas, sem expor seus valores. |
 | `GET /api/dev/system-logs` | Restrita a `dev`; lista logs paginados e filtrados por texto, categoria, nível e período. |
 | `POST /api/client-errors` | Endpoint público limitado por IP; registra somente o tipo de erro JavaScript enviado, nunca a mensagem ou o stack trace. |
 | `GET /api/schedules` | Lista horários, ordenado por `date` desc e `startTime` asc. Filtra por `?teacherId=`. |
@@ -91,10 +95,11 @@ O fluxo e as rotas de atestados foram removidos. A tabela `certificates` permane
 
 1. **Criação de contas**: o cadastro público está desativado. A direção e o desenvolvedor criam usuários pela gestão de usuários.
 2. **Login**: a pessoa escolhe uma escola ativa e envia e-mail/senha a `POST /api/auth/login`. Professores e diretores só entram se o vínculo da conta corresponder à escola escolhida e a escola vinculada estiver ativa. Contas sem escola recebem orientação para solicitar o vínculo.
-3. **Persistência de sessão**: ao carregar a página, `app.js` lê `localStorage.getItem('user')` direto para a variável `user` — não há verificação de validade/expiração; a "sessão" nunca expira sozinha.
-4. **Logout**: `actions.logout()` só limpa `localStorage.user` e zera o estado local; não há chamada ao backend nem revogação de nada no Supabase Auth.
-5. **Cargos**: contas `teacher`, `diretor` e `dev` são criadas/gerenciadas pela direção ou pelo desenvolvedor. Diretores não podem editar contas `dev`, mudar escola ou promover usuários a `dev`; ninguém pode alterar o próprio perfil.
-6. **Migrações**: aplique `migrations/011_school_active_flag.sql` para ativar a escola Júlio Szymanski, desativar as demais e vincular professores/diretores sem escola ativa. Aplique também `migrations/012_user_profile_audit.sql` para adicionar ao log de auditoria o UID alvo e os valores alterados, e `migrations/011_system_logs.sql` para criar os logs do sistema e importar os registros legados de `dev_error_logs`. Há dois arquivos com o prefixo `011`; aplique cada arquivo explicitamente, sem inferir a ordem apenas pelo número.
+3. **Troca obrigatória**: contas criadas ou redefinidas por um administrador recebem `must_change_password = true`. O servidor bloqueia as rotas privadas com `403/PASSWORD_CHANGE_REQUIRED` até a senha atual ser verificada e trocada em `PATCH /api/auth/password`.
+4. **Persistência de sessão**: ao carregar a página, `app.js` lê `localStorage.getItem('user')` para restaurar a sessão; tokens continuam seguindo o fluxo existente, mas senha e sinalizador de troca obrigatória não são persistidos.
+5. **Logout**: `actions.logout()` só limpa `localStorage.user` e zera o estado local; não há chamada ao backend nem revogação de nada no Supabase Auth.
+6. **Cargos**: contas `teacher`, `diretor` e `dev` são criadas/gerenciadas pela direção ou pelo desenvolvedor. Diretores não podem editar contas `dev`, mudar escola ou promover usuários a `dev`; ninguém pode alterar o próprio perfil.
+7. **Migrações**: aplique `migrations/011_school_active_flag.sql` para ativar a escola Júlio Szymanski, desativar as demais e vincular professores/diretores sem escola ativa. Aplique também `migrations/012_user_profile_audit.sql` para adicionar ao log de auditoria o UID alvo e os valores alterados, `migrations/012_password_policy.sql` para a política de senha e `migrations/011_system_logs.sql` para criar os logs do sistema e importar os registros legados de `dev_error_logs`. Há dois arquivos com o prefixo `011` e dois com o prefixo `012`; aplique cada arquivo explicitamente, sem inferir a ordem apenas pelo número.
 
 ## 5. Registros históricos de certificados
 
@@ -116,7 +121,7 @@ A aplicação não oferece envio, consulta ou aprovação de atestados. A tabela
 
 ## 7. Variáveis de ambiente (`.env`)
 
-Lidas em `server.ts`; o processo lança erro na inicialização se alguma estiver ausente:
+Lidas em `server.ts`; as quatro primeiras variáveis são obrigatórias e o processo lança erro na inicialização se alguma estiver ausente. As senhas padrão são opcionais:
 
 | Variável | Uso |
 |---|---|
@@ -125,8 +130,13 @@ Lidas em `server.ts`; o processo lança erro na inicialização se alguma estive
 | `SUPABASE_ANON_KEY` | Chave pública usada só pelo client `supabaseAuth`, exclusivamente para `signInWithPassword` no login. |
 | `PORT` | Porta do Express (padrão 3000 se ausente). |
 | `LOG_IP_SALT` | Salt secreto usado para gerar hashes SHA-256 dos IPs nos logs; obrigatório no servidor e nunca enviado ao navegador. |
+| `DEFAULT_TEACHER_PASSWORD` | Senha padrão temporária para professores. Vazia desabilita a ação. Se configurada, exige 8 caracteres, letra e número. |
+| `DEFAULT_DIRECTOR_PASSWORD` | Senha padrão temporária para diretores. Vazia desabilita a ação. Se configurada, exige 8 caracteres, letra e número. |
+| `DEFAULT_DEV_PASSWORD` | Senha padrão temporária para desenvolvedores. Vazia desabilita a ação. Se configurada, exige 8 caracteres, letra e número. |
 
 Adicionalmente, `vite.config.ts` injeta `process.env.GEMINI_API_KEY` como `define` global, mas essa variável **não é lida em nenhum lugar de `src/app.js`** — é resquício de um scaffold (o pacote `@google/genai` está no `package.json` mas não é importado por nada) e não precisa ser configurada para o app funcionar.
+
+As senhas padrão devem ser configuradas apenas no ambiente do servidor (ou no painel do Render), nunca no repositório. Aplique também `migrations/012_password_policy.sql` para habilitar a troca obrigatória e a atribuição de quem definiu a senha; o repositório já contém outro arquivo `012_user_profile_audit.sql`, portanto aplique cada migration explicitamente.
 
 ## 8. Decisões técnicas relevantes e limitações conhecidas
 

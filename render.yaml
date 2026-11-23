@@ -17,3 +17,9 @@ services:
         sync: false
       - key: LOG_IP_SALT
         generateValue: true
+      - key: DEFAULT_TEACHER_PASSWORD
+        sync: false
+      - key: DEFAULT_DIRECTOR_PASSWORD
+        sync: false
+      - key: DEFAULT_DEV_PASSWORD
+        sync: false
