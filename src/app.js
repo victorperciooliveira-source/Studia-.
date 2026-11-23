@@ -5761,6 +5761,22 @@ const actions = {
     pdfContainer.style.backgroundColor = '#ffffff';
     pdfContainer.style.padding = '30px';
     document.body.appendChild(pdfContainer);
+
+    const scrollContainer = pdfContainer.querySelector('.overflow-x-auto');
+    if (scrollContainer) {
+      scrollContainer.style.overflow = 'visible';
+      scrollContainer.style.paddingBottom = '0';
+    }
+    const scheduleContainer = pdfContainer.querySelector('.max-w-2xl');
+    if (scheduleContainer) {
+      scheduleContainer.style.width = '100%';
+      scheduleContainer.style.maxWidth = 'none';
+    }
+    const scheduleGrid = pdfContainer.querySelector('.min-w-\\[550px\\]');
+    if (scheduleGrid) {
+      scheduleGrid.style.width = '100%';
+      scheduleGrid.style.minWidth = '0';
+    }
     
     // Ensure icons inside clone are compiled/cloned cleanly
     if (typeof lucide !== 'undefined') {
@@ -5781,36 +5797,20 @@ const actions = {
     };
     
     const restoreOklch = prepareOklchForPrint(pdfContainer);
-    let restoreStylesheets = () => {};
     try {
-      restoreStylesheets = await cleanOklchFromStylesheets();
-    } catch (e) {
-      console.warn('Could not clean stylesheets:', e);
-    }
-    
-    html2pdf().set(opt).from(pdfContainer).save().then(() => {
-      restoreOklch();
-      restoreStylesheets();
-      document.body.removeChild(pdfContainer);
-      if (btn) {
-        btn.innerHTML = originalContent;
-        btn.disabled = false;
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-      }
-    }).catch(err => {
-      restoreOklch();
-      restoreStylesheets();
-      if (document.getElementById('temp-pdf-teacher-container')) {
-        document.body.removeChild(pdfContainer);
-      }
+      await html2pdf().set(opt).from(pdfContainer).save();
+    } catch (err) {
       console.error('Error generating PDF:', err);
+      showDialog('Houve um erro ao gerar o PDF.');
+    } finally {
+      restoreOklch();
+      pdfContainer.remove();
       if (btn) {
         btn.innerHTML = originalContent;
         btn.disabled = false;
         if (typeof lucide !== 'undefined') lucide.createIcons();
       }
-      showDialog('Houve um erro ao gerar o PDF.');
-    });
+    }
   },
 
   async downloadPDF() {
@@ -6020,36 +6020,20 @@ const actions = {
     };
 
     const restoreOklch = prepareOklchForPrint(pdfContainer);
-    let restoreStylesheets = () => {};
     try {
-      restoreStylesheets = await cleanOklchFromStylesheets();
-    } catch (e) {
-      console.warn('Could not clean stylesheets:', e);
-    }
-
-    html2pdf().set(opt).from(pdfContainer).save().then(() => {
-      restoreOklch();
-      restoreStylesheets();
-      document.body.removeChild(pdfContainer);
-      if (btn) {
-        btn.innerHTML = originalContent;
-        btn.disabled = false;
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-      }
-    }).catch(err => {
-      restoreOklch();
-      restoreStylesheets();
-      if (document.getElementById('temp-pdf-container')) {
-        document.body.removeChild(pdfContainer);
-      }
+      await html2pdf().set(opt).from(pdfContainer).save();
+    } catch (err) {
       console.error('Error generating PDF:', err);
+      showDialog('Houve um erro ao gerar o PDF.');
+    } finally {
+      restoreOklch();
+      pdfContainer.remove();
       if (btn) {
         btn.innerHTML = originalContent;
         btn.disabled = false;
         if (typeof lucide !== 'undefined') lucide.createIcons();
       }
-      showDialog('Houve um erro ao gerar o PDF.');
-    });
+    }
   },
 
   showCreateEscolaModal() {
@@ -6250,71 +6234,6 @@ function resolveOklchToRgb(colorStr) {
     }
     return oklchToRgbFallback(match);
   });
-}
-
-async function cleanOklchFromStylesheets() {
-  const backups = [];
-  const styleNodes = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
-  
-  let combinedCss = '';
-  
-  for (const node of styleNodes) {
-    try {
-      if (node.tagName === 'STYLE') {
-        combinedCss += '\n' + node.innerHTML;
-        backups.push({ node, originalDisabled: node.disabled, type: 'style' });
-      } else if (node.tagName === 'LINK') {
-        let rulesText = '';
-        try {
-          if (node.sheet) {
-            const rules = node.sheet.cssRules || node.sheet.rules;
-            for (let i = 0; i < rules.length; i++) {
-              rulesText += rules[i].cssText + '\n';
-            }
-          }
-        } catch (e) {
-          // ignore Rules cross-origin error
-        }
-        
-        if (!rulesText) {
-          const href = node.getAttribute('href');
-          if (href && (href.startsWith('/') || href.startsWith('./') || href.startsWith('src/') || href.startsWith(window.location.origin))) {
-            const res = await fetch(href);
-            rulesText = await res.text();
-          }
-        }
-        
-        if (rulesText) {
-          combinedCss += '\n' + rulesText;
-          backups.push({ node, originalDisabled: node.disabled, type: 'link' });
-        }
-      }
-    } catch (err) {
-      console.warn('Could not backup or read stylesheet:', node, err);
-    }
-  }
-  
-  const cleanedCss = combinedCss.replace(/oklch\([^)]+\)/gi, (match) => {
-    return oklchToRgbFallback(match);
-  });
-  
-  const tempStyle = document.createElement('style');
-  tempStyle.id = 'temp-cleaned-stylesheets';
-  tempStyle.innerHTML = cleanedCss;
-  document.head.appendChild(tempStyle);
-  
-  for (const b of backups) {
-    b.node.disabled = true;
-  }
-  
-  return function restore() {
-    for (const b of backups) {
-      b.node.disabled = b.originalDisabled;
-    }
-    if (tempStyle.parentNode) {
-      tempStyle.parentNode.removeChild(tempStyle);
-    }
-  };
 }
 
 function prepareOklchForPrint(container) {
