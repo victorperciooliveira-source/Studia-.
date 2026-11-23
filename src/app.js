@@ -1168,9 +1168,9 @@ const TeacherDashboardView = () => {
       <section class="rounded-3xl bg-gradient-to-br from-blue-700 to-slate-900 p-6 text-white shadow-lg md:p-8">
         <div class="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p class="text-sm font-bold text-blue-100">${escapeHtml(todayLabel)}</p>
-            <h3 class="mt-2 text-2xl font-black md:text-3xl">Olá, ${escapeHtml(firstName)}!</h3>
-            <p class="mt-2 flex items-center gap-2 text-sm font-medium text-blue-100"><i data-lucide="building-2" class="h-4 w-4"></i>${escapeHtml(schoolLabel)}</p>
+            <p class="text-sm font-black text-white">${escapeHtml(todayLabel)}</p>
+            <h3 class="mt-2 text-2xl font-black text-white md:text-3xl">Olá, ${escapeHtml(firstName)}!</h3>
+            <p class="mt-2 flex items-center gap-2 text-sm font-bold text-white"><i data-lucide="building-2" class="h-4 w-4 shrink-0"></i><span>${escapeHtml(schoolLabel || 'Sua escola')}</span></p>
             ${teacherDashboardStatus === 'ready' && todaySchedules.length === 0 ? '<p class="mt-4 text-sm font-semibold text-white/90">Hoje é um dia sem aulas para você. Aproveite para organizar sua semana!</p>' : ''}
           </div>
           <button type="button" onclick="actions.refreshSchedules()" class="inline-flex items-center justify-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-white/20">
