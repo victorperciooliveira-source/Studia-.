@@ -677,7 +677,7 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
   let rowClass = "h-9";
 
   if (reportCardSize === 'small') {
-    cardStyle = "font-size: 9.5px; padding: 0.625rem; height: 220px; min-height: 220px; max-height: 220px; overflow: hidden;";
+    cardStyle = "font-size: 9.5px; padding: 0.625rem; height: 260px; min-height: 260px; max-height: 260px;";
     headerSize = "text-[10px]";
     subTitleSize = "text-[8px]";
     thSize = "text-[8px]";
@@ -708,7 +708,7 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
 
   if (model === 'prof_turma') {
     const professorTurmaSize = {
-      small: { card: "font-size: 9.5px; padding: 0.625rem; height: 220px; min-height: 220px; max-height: 220px; overflow: hidden;", header: "text-[10px]", th: "text-[8px]", td: "text-[8.5px]", row: "h-8" },
+      small: { card: "font-size: 9.5px; padding: 0.625rem; height: 260px; min-height: 260px; max-height: 260px;", header: "text-[10px]", th: "text-[8px]", td: "text-[8.5px]", row: "h-8" },
       medium: { card: "font-size: 9px; padding: 0.5rem; height: 240px; min-height: 240px; max-height: 240px; overflow: hidden;", header: "text-[10px]", th: "text-[8px]", td: "text-[8.5px]", row: "h-8" },
       large: { card: "font-size: 11.5px; padding: 0.75rem; height: 290px; min-height: 290px; max-height: 290px; overflow: hidden;", header: "text-[12px]", th: "text-[9px]", td: "text-[10px]", row: "h-10" },
       esticado: { card: "font-size: 13px; padding: 1rem; height: 340px; min-height: 340px; max-height: 340px; overflow: hidden;", header: "text-[14px]", th: "text-[11px]", td: "text-[12px]", row: "h-12" },
@@ -799,7 +799,7 @@ const TurmaScheduleCard = (turmaName, weekSchedules, slots) => {
   let rowClass = "h-11";
 
   if (reportCardSize === 'small') {
-    cardStyle = "font-size: 9.5px; padding: 0.625rem; height: 220px; min-height: 220px; max-height: 220px; overflow: hidden;";
+    cardStyle = "font-size: 9.5px; padding: 0.625rem; height: 260px; min-height: 260px; max-height: 260px;";
     headerSize = "text-[10px]";
     subTitleSize = "text-[8px]";
     thSize = "text-[8px]";
@@ -5819,8 +5819,7 @@ const actions = {
       }).join('');
 
       const pageFooter = `
-        <div class="border-t border-slate-100 pt-3 flex justify-between text-[8px] text-slate-400 font-extrabold uppercase tracking-widest leading-none" style="position:absolute; left:10px; right:10px; bottom:18px;">
-          <span>Página ${chunkIndex + 1} de ${chunks.length}</span>
+        <div class="border-t border-slate-100 pt-3 flex justify-end text-[8px] text-slate-400 font-extrabold uppercase tracking-widest leading-none" style="position:absolute; left:10px; right:10px; bottom:18px;">
           <span>Data de emissão: ${new Date().toLocaleDateString('pt-BR')}</span>
         </div>
       `;
@@ -5828,7 +5827,7 @@ const actions = {
       const breakStyle = chunkIndex === chunks.length - 1 ? '' : 'page-break-after: always;';
       const pageGridStyle = !isTurma && reportModel === 'prof_turma'
         ? ({
-            small: 'grid-auto-rows: 220px; align-content: start;',
+            small: 'grid-auto-rows: 260px; align-content: start;',
             medium: 'grid-auto-rows: 240px; align-content: start;',
             large: 'grid-auto-rows: 290px; align-content: start;',
             esticado: 'grid-auto-rows: 340px; align-content: start;',
