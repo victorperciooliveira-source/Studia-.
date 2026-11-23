@@ -677,7 +677,7 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
   let rowClass = "h-9";
 
   if (reportCardSize === 'small') {
-    cardStyle = "font-size: 8.5px; padding: 0.5rem;";
+    cardStyle = "font-size: 8.5px; padding: 0.5rem; height: 180px; min-height: 180px; max-height: 180px; overflow: hidden;";
     headerSize = "text-[9px]";
     subTitleSize = "text-[7.5px]";
     thSize = "text-[7px]";
@@ -707,19 +707,26 @@ const TeacherScheduleCard = (teacher, weekSchedules, slots, model = 'prof_turma'
   }
 
   if (model === 'prof_turma') {
-    cardStyle = "font-size: 9px; padding: 0.5rem; height: 240px; min-height: 240px; max-height: 240px; overflow: hidden;";
-    headerSize = "text-[10px]";
+    const professorTurmaSize = {
+      small: { card: "font-size: 8.5px; padding: 0.5rem; height: 180px; min-height: 180px; max-height: 180px; overflow: hidden;", header: "text-[9px]", th: "text-[7px]", td: "text-[7.5px]", row: "h-5" },
+      medium: { card: "font-size: 9px; padding: 0.5rem; height: 240px; min-height: 240px; max-height: 240px; overflow: hidden;", header: "text-[10px]", th: "text-[8px]", td: "text-[8.5px]", row: "h-8" },
+      large: { card: "font-size: 11.5px; padding: 0.75rem; height: 290px; min-height: 290px; max-height: 290px; overflow: hidden;", header: "text-[12px]", th: "text-[9px]", td: "text-[10px]", row: "h-10" },
+      esticado: { card: "font-size: 13px; padding: 1rem; height: 340px; min-height: 340px; max-height: 340px; overflow: hidden;", header: "text-[14px]", th: "text-[11px]", td: "text-[12px]", row: "h-12" },
+      super_esticado: { card: "font-size: 16px; padding: 1.25rem; height: 420px; min-height: 420px; max-height: 420px; overflow: hidden;", header: "text-[18px]", th: "text-[13px]", td: "text-[15px]", row: "h-14" }
+    }[reportCardSize] || { card: "font-size: 9px; padding: 0.5rem; height: 240px; min-height: 240px; max-height: 240px; overflow: hidden;", header: "text-[10px]", th: "text-[8px]", td: "text-[8.5px]", row: "h-8" };
+    cardStyle = professorTurmaSize.card;
+    headerSize = professorTurmaSize.header;
     subTitleSize = "text-[8px]";
-    thSize = "text-[8px]";
-    tdSize = "text-[8.5px]";
-    rowClass = "h-8";
+    thSize = professorTurmaSize.th;
+    tdSize = professorTurmaSize.td;
+    rowClass = professorTurmaSize.row;
   }
   
   const distinctAnos = [...new Set(weekSchedules.map(s => s.classGroup).filter(Boolean))];
   const anosSuffix = distinctAnos.length ? ` (${distinctAnos.join(', ')})` : '';
 
   return `
-    <div class="bg-white border border-[#cbd5e1] rounded-md text-slate-800 shadow-none flex flex-col justify-between break-inside-avoid text-xs w-full ${model === 'prof_turma' ? 'min-h-[118px]' : 'min-h-[285px]'}" style="${cardStyle}">
+    <div class="bg-white border border-[#cbd5e1] rounded-md text-slate-800 shadow-none flex flex-col justify-between break-inside-avoid text-xs w-full ${reportCardSize === 'small' ? 'min-h-0' : (model === 'prof_turma' ? 'min-h-[118px]' : 'min-h-[285px]')}" style="${cardStyle}">
       <div class="mb-1.5 flex flex-wrap justify-between items-center gap-x-2 gap-y-0.5 bg-slate-100 px-2 py-1.5 rounded-sm">
         <span class="min-w-0 flex-1 font-extrabold uppercase text-slate-900 whitespace-normal break-words ${headerSize}">${teacher.displayName}${model === 'prof_turma' ? '' : anosSuffix}</span>
         ${model === 'prof_turma' ? '' : `<span title="${teacher.subject || 'Professor'}" class="shrink-0 ${subTitleSize} text-[#5B99C2] font-extrabold uppercase tracking-tight whitespace-normal break-words">${abbreviateReportSubject(teacher.subject || 'Professor')}</span>`}
@@ -792,13 +799,13 @@ const TurmaScheduleCard = (turmaName, weekSchedules, slots) => {
   let rowClass = "h-11";
 
   if (reportCardSize === 'small') {
-    cardStyle = "font-size: 8.5px; padding: 0.5rem;";
+    cardStyle = "font-size: 8.5px; padding: 0.5rem; height: 180px; min-height: 180px; max-height: 180px; overflow: hidden;";
     headerSize = "text-[9px]";
     subTitleSize = "text-[7.5px]";
     thSize = "text-[7px]";
     tdTitleSize = "text-[8.5px]";
     tdSubSize = "text-[7.5px]";
-    rowClass = "h-8";
+    rowClass = "h-5";
   } else if (reportCardSize === 'large') {
     cardStyle = "font-size: 13.5px; padding: 1rem;";
     headerSize = "text-[14px]";
@@ -826,7 +833,7 @@ const TurmaScheduleCard = (turmaName, weekSchedules, slots) => {
   }
   
   return `
-    <div class="bg-white border border-[#cbd5e1] rounded-md text-slate-800 shadow-none flex flex-col justify-between break-inside-avoid text-xs w-full min-h-[285px]" style="${cardStyle}">
+    <div class="bg-white border border-[#cbd5e1] rounded-md text-slate-800 shadow-none flex flex-col justify-between break-inside-avoid text-xs w-full ${reportCardSize === 'small' ? 'min-h-0' : 'min-h-[285px]'}" style="${cardStyle}">
       <div class="mb-1.5 flex flex-wrap justify-between items-center gap-x-2 bg-slate-100 px-2 py-1.5 rounded-sm">
         <span class="font-extrabold uppercase text-slate-900 truncate ${headerSize}">Turma: ${turmaName}</span>
         <span class="${subTitleSize} text-[#5B99C2] font-extrabold uppercase tracking-tight">GRADE HORÁRIA</span>
@@ -3669,7 +3676,17 @@ const RelatoriosTab = () => {
   // Dynamic Grid classes based on card size selection
   let gridColsClass = "grid grid-cols-1 sm:grid-cols-2 gap-3.5 print:grid-cols-2 print:gap-3 justify-center";
   if (reportModel === 'prof_turma') {
-    gridColsClass = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 print:grid-cols-4 print:gap-2 justify-center";
+    if (reportCardSize === 'small') {
+      gridColsClass = "grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 print:grid-cols-5 print:gap-1 justify-center";
+    } else if (reportCardSize === 'medium') {
+      gridColsClass = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 print:grid-cols-4 print:gap-2 justify-center";
+    } else if (reportCardSize === 'large') {
+      gridColsClass = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 print:grid-cols-3 print:gap-3 justify-center";
+    } else if (reportCardSize === 'esticado') {
+      gridColsClass = "grid grid-cols-1 md:grid-cols-2 gap-6 print:grid-cols-2 print:gap-4 justify-center";
+    } else if (reportCardSize === 'super_esticado') {
+      gridColsClass = "grid grid-cols-1 gap-8 print:grid-cols-1 print:gap-6 justify-center";
+    }
   } else if (reportCardSize === 'small') {
     gridColsClass = "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 print:grid-cols-5 print:gap-1 justify-center";
   } else if (reportCardSize === 'medium') {
@@ -5710,8 +5727,15 @@ const actions = {
       esticado: 2,
       super_esticado: 1
     };
+    const professorTurmaItemsPerPage = {
+      small: 10,
+      medium: 8,
+      large: 6,
+      esticado: 4,
+      super_esticado: 1
+    };
     const itemsPerPage = !isTurma && reportModel === 'prof_turma'
-      ? 8
+      ? (professorTurmaItemsPerPage[reportCardSize] || 8)
       : (itemsPerPageMap[reportCardSize] || 4);
 
     const chunks = [];
@@ -5730,7 +5754,17 @@ const actions = {
 
     let gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
     if (!isTurma && reportModel === 'prof_turma') {
-      gridColsClass = "grid grid-cols-4 gap-3 justify-center w-full";
+      if (reportCardSize === 'small') {
+        gridColsClass = "grid grid-cols-5 gap-2 justify-center w-full";
+      } else if (reportCardSize === 'medium') {
+        gridColsClass = "grid grid-cols-4 gap-3 justify-center w-full";
+      } else if (reportCardSize === 'large') {
+        gridColsClass = "grid grid-cols-3 gap-4 justify-center w-full";
+      } else if (reportCardSize === 'esticado') {
+        gridColsClass = "grid grid-cols-2 gap-4 justify-center w-full";
+      } else if (reportCardSize === 'super_esticado') {
+        gridColsClass = "grid grid-cols-1 gap-6 justify-center w-full";
+      }
     } else if (reportCardSize === 'small') {
       gridColsClass = "grid grid-cols-4 gap-2 justify-center w-full";
     } else if (reportCardSize === 'medium') {
@@ -5793,7 +5827,13 @@ const actions = {
 
       const breakStyle = chunkIndex === chunks.length - 1 ? '' : 'page-break-after: always;';
       const pageGridStyle = !isTurma && reportModel === 'prof_turma'
-        ? 'grid-auto-rows: 240px; align-content: start;'
+        ? ({
+            small: 'grid-auto-rows: 180px; align-content: start;',
+            medium: 'grid-auto-rows: 240px; align-content: start;',
+            large: 'grid-auto-rows: 290px; align-content: start;',
+            esticado: 'grid-auto-rows: 340px; align-content: start;',
+            super_esticado: 'grid-auto-rows: 420px; align-content: start;'
+          }[reportCardSize] || 'grid-auto-rows: 240px; align-content: start;')
         : '';
 
       pagesHtml += `
